@@ -1,0 +1,57 @@
+# Treat all text files as text, with LF (Unix) line-endings on commit and checkout
+* text eol=lf
+
+# Explicitly mark certain text files
+*.attr text
+*.bat text
+*.cmake text
+*.cnf text
+*.conf text
+*.css text
+*.c text
+*.env text
+*.g4 text
+*.gitignore text
+*.gitmodules text
+*.go text
+*.gradle text
+*.h text
+*.html text
+*.http text
+*.interp text
+*.in text
+*.java text
+*.json text
+*.js text
+*.kts text
+*.kt text
+*.liquid text
+*.md text
+*.mod text
+*.partial text
+*.pem text
+*.properties text
+*.proto text
+*.ps1 text
+*.rst text
+*.service text
+*.sh text
+*.sum text
+*.svg text
+*.tmpl text
+*.tokens text
+*.txt text
+*.variants text
+*.yaml text
+*.yml text
+
+# Declare common binary file types
+*.docx binary
+*.exe binary
+*.gif binary
+*.jpg binary
+*.pdf binary
+*.png binary
+*.pptx binary
+*.xlsx binary
+*.zip binary
