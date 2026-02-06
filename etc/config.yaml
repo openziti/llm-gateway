@@ -1,0 +1,22 @@
+# llm-gateway configuration
+
+listen: ":8080"
+
+zrok:
+  share:
+    enabled: false
+    mode: private  # public or private
+    # token: "abc123"  # optional: use existing persistent share (private only)
+
+providers:
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+    # baseURL: "https://api.openai.com"  # optional: override for Azure or proxies
+
+  anthropic:
+    apiKey: "${ANTHROPIC_API_KEY}"
+    # baseURL: "https://api.anthropic.com"  # optional: override base URL
+
+  ollama:
+    baseURL: "http://localhost:11434"
+    # zrokShare: "abc123"  # optional: connect to ollama via zrok
