@@ -1,0 +1,58 @@
+# test configuration for semantic routing
+# prerequisites:
+#   - ollama running with llama3.2 and nomic-embed-text pulled
+#   - ANTHROPIC_API_KEY set in environment
+
+listen: ":8080"
+
+providers:
+  anthropic:
+    api_key: "${ANTHROPIC_API_KEY}"
+
+  ollama:
+    base_url: "http://localhost:11434"
+
+routing:
+  allow_explicit_model: true
+  default_route: general
+
+  heuristics:
+    enabled: true
+    rules:
+      - match:
+          keywords: ["translate", "translation"]
+        route: general
+
+  semantic:
+    enabled: true
+    provider: ollama
+    model: nomic-embed-text
+    threshold: 0.75
+    ambiguous_threshold: 0.5
+    comparison: centroid
+
+  classifier:
+    enabled: true
+    provider: ollama
+    model: llama3.2
+    timeout_ms: 10000
+    confidence_threshold: 0.7
+
+  routes:
+    - name: coding
+      model: claude-sonnet-4-20250514
+      description: "code generation, debugging, code review, and technical programming tasks"
+      examples:
+        - "write a python function to sort a list"
+        - "debug this segfault in my C code"
+        - "review this pull request for bugs"
+        - "implement a binary search tree in Go"
+
+    - name: general
+      model: llama3.2
+      description: "general knowledge, conversation, translations, and everyday questions"
+      examples:
+        - "what is the capital of France"
+        - "explain how photosynthesis works"
+        - "translate hello to Japanese"
+        - "what's the weather like on Mars"

@@ -33,6 +33,12 @@ func (g *Gateway) handleModels(w http.ResponseWriter, r *http.Request) {
 		allModels = append(allModels, models...)
 	}
 
+	if g.semanticRouter != nil && g.semanticRouter.Enabled() {
+		allModels = append(allModels, providers.Model{
+			ID: "auto", Object: "model", OwnedBy: "llm-gateway",
+		})
+	}
+
 	resp := providers.ModelsResponse{
 		Object: "list",
 		Data:   allModels,
@@ -54,6 +60,11 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	if len(req.Messages) == 0 {
 		providers.WriteError(w, providers.ErrMessagesRequired, http.StatusBadRequest)
 		return
+	}
+
+	// clear virtual model name to trigger semantic routing
+	if req.Model == "auto" {
+		req.Model = ""
 	}
 
 	// semantic routing: select model if not explicitly provided (or override if configured)
