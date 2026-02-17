@@ -82,7 +82,7 @@ OpenAI-compatible chat completions endpoint. Supports both streaming (`stream: t
 
 ### GET /v1/models
 
-Returns available models from all configured providers.
+Returns available models from all configured providers. When semantic routing is enabled, includes an `auto` virtual model that triggers automatic model selection.
 
 ## Configuration
 
@@ -191,6 +191,21 @@ curl http://localhost:8080/v1/chat/completions \
     "messages": [{"role": "user", "content": "Write a Python function to sort a list"}]
   }'
 ```
+
+### Using with Chat Clients (Open WebUI, etc.)
+
+Chat clients like Open WebUI require selecting a model from the model list — they always send a `model` field. When semantic routing is enabled, the gateway exposes a virtual `auto` model that triggers automatic routing:
+
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Write a Python function to sort a list"}]
+  }'
+```
+
+Point your client at `http://localhost:8080/v1` and select `auto` from the model list. The gateway will route each request through the semantic routing cascade.
 
 The gateway logs each routing decision with the method used, confidence score, latency, and cascade trace.
 
