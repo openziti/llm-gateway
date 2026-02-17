@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/michaelquigley/df/dl"
 	"github.com/openziti/llm-gateway/providers"
+	"github.com/openziti/llm-gateway/routing"
 )
 
 func (g *Gateway) newHandler() http.Handler {
@@ -49,13 +51,27 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if req.Model == "" {
-		providers.WriteError(w, providers.ErrModelRequired, http.StatusBadRequest)
+	if len(req.Messages) == 0 {
+		providers.WriteError(w, providers.ErrMessagesRequired, http.StatusBadRequest)
 		return
 	}
 
-	if len(req.Messages) == 0 {
-		providers.WriteError(w, providers.ErrMessagesRequired, http.StatusBadRequest)
+	// semantic routing: select model if not explicitly provided (or override if configured)
+	if g.semanticRouter != nil && g.semanticRouter.Enabled() {
+		info := buildRequestInfo(&req)
+		decision, err := g.semanticRouter.Route(ctx, info)
+		if err != nil {
+			dl.Errorf("semantic routing error: %v", err)
+			// fall through to normal routing
+		} else if decision.Model != "" {
+			req.Model = decision.Model
+			dl.Infof("semantic routing: method=%s route='%s' model='%s' confidence=%.2f latency=%dms cascade=[%s]",
+				decision.Method, decision.Route, decision.Model, decision.Confidence, decision.LatencyMs, strings.Join(decision.Cascade, ","))
+		}
+	}
+
+	if req.Model == "" {
+		providers.WriteError(w, providers.ErrModelRequired, http.StatusBadRequest)
 		return
 	}
 
@@ -120,6 +136,45 @@ func (g *Gateway) handleStreamingCompletion(ctx context.Context, w http.Response
 				return
 			}
 		}
+	}
+}
+
+func buildRequestInfo(req *providers.ChatCompletionRequest) *routing.RequestInfo {
+	info := &routing.RequestInfo{
+		Model:     req.Model,
+		MaxTokens: req.MaxTokens,
+		HasTools:  len(req.Tools) > 0,
+	}
+
+	for _, msg := range req.Messages {
+		content := extractMessageContent(msg.Content)
+		info.Messages = append(info.Messages, routing.MessageInfo{
+			Role:    msg.Role,
+			Content: content,
+		})
+	}
+
+	return info
+}
+
+// extractMessageContent extracts string content from a message's Content field,
+// which may be a string or []ContentPart.
+func extractMessageContent(content any) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case []interface{}:
+		var parts []string
+		for _, part := range v {
+			if m, ok := part.(map[string]interface{}); ok {
+				if t, ok := m["text"].(string); ok {
+					parts = append(parts, t)
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return ""
 	}
 }
 

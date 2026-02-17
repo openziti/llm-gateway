@@ -9,14 +9,92 @@ zrok:
     # token: "abc123"  # optional: use existing persistent share (private only)
 
 providers:
-  openai:
-    apiKey: "${OPENAI_API_KEY}"
-    # baseURL: "https://api.openai.com"  # optional: override for Azure or proxies
+  open_ai:
+    api_key: "${OPENAI_API_KEY}"
+    # base_url: "https://api.openai.com"  # optional: override for Azure or proxies
 
   anthropic:
-    apiKey: "${ANTHROPIC_API_KEY}"
-    # baseURL: "https://api.anthropic.com"  # optional: override base URL
+    api_key: "${ANTHROPIC_API_KEY}"
+    # base_url: "https://api.anthropic.com"  # optional: override base URL
 
   ollama:
-    baseURL: "http://localhost:11434"
-    # zrokShare: "abc123"  # optional: connect to ollama via zrok
+    base_url: "http://localhost:11434"
+    # zrok_share: "abc123"  # optional: connect to ollama via zrok
+
+# semantic routing configuration
+# when enabled, the model field becomes optional in requests.
+# requests are routed through a three-layer cascade: heuristics -> embeddings -> classifier.
+# routing:
+#   allow_explicit_model: true  # allow clients to bypass routing by specifying a model
+#   default_route: general      # fallback route when no layer matches
+#
+#   heuristics:
+#     enabled: true
+#     rules:
+#       - match:
+#           keywords: ["translate", "translation"]
+#         route: fast
+#       - match:
+#           has_tools: true
+#         route: tools
+#       - match:
+#           system_prompt_contains: "you are a code assistant"
+#         route: coding
+#       - match:
+#           max_tokens_lt: 100
+#           message_length_lt: 200
+#         route: fast
+#
+#   semantic:
+#     enabled: true
+#     provider: ollama              # ollama or openai
+#     model: nomic-embed-text       # embedding model name
+#     threshold: 0.82               # minimum similarity for confident match
+#     ambiguous_threshold: 0.65     # below threshold but above this -> escalate to classifier
+#     comparison: centroid           # centroid, max, or average
+#
+#   classifier:
+#     enabled: true
+#     provider: ollama              # ollama or openai (must support /v1/chat/completions)
+#     model: llama3                 # model for classification
+#     timeout_ms: 5000              # timeout for classifier requests
+#     confidence_threshold: 0.7     # minimum confidence to accept classification
+#
+#   routes:
+#     - name: coding
+#       model: claude-sonnet-4-20250514
+#       description: "code generation, debugging, and technical tasks"
+#       examples:
+#         - "write a python function to sort a list"
+#         - "debug this segfault in my C code"
+#         - "review this pull request"
+#
+#     - name: creative
+#       model: claude-sonnet-4-20250514
+#       description: "creative writing, storytelling, and artistic content"
+#       examples:
+#         - "write a poem about the ocean"
+#         - "tell me a story about a dragon"
+#         - "compose a song about summer"
+#
+#     - name: fast
+#       model: llama3
+#       description: "simple tasks, translations, and short responses"
+#       examples:
+#         - "translate hello to French"
+#         - "what is 2+2"
+#         - "summarize this in one sentence"
+#
+#     - name: tools
+#       model: gpt-4
+#       description: "tasks requiring tool use and function calling"
+#       examples:
+#         - "search the web for recent news"
+#         - "call the weather API for New York"
+#
+#     - name: general
+#       model: llama3
+#       description: "general conversation and miscellaneous tasks"
+#       examples:
+#         - "what is the capital of France"
+#         - "explain quantum computing"

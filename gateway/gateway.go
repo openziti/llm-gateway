@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -9,14 +10,16 @@ import (
 
 	"github.com/michaelquigley/df/dl"
 	"github.com/openziti/llm-gateway/providers"
+	"github.com/openziti/llm-gateway/routing"
 )
 
 type Gateway struct {
-	cfg       *Config
-	providers map[providers.ProviderType]providers.Provider
-	router    *providers.Router
-	share     *Share
-	access    *Access
+	cfg            *Config
+	providers      map[providers.ProviderType]providers.Provider
+	router         *providers.Router
+	semanticRouter *routing.SemanticRouter
+	share          *Share
+	access         *Access
 }
 
 func New(cfg *Config) (*Gateway, error) {
@@ -30,6 +33,14 @@ func New(cfg *Config) (*Gateway, error) {
 	}
 
 	g.router = providers.NewRouter(g.providers)
+
+	if cfg.Routing != nil {
+		sr, err := g.initSemanticRouter(cfg.Routing)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize semantic router: %w", err)
+		}
+		g.semanticRouter = sr
+	}
 
 	return g, nil
 }
@@ -182,4 +193,60 @@ func (g *Gateway) cleanup() {
 	if g.access != nil {
 		g.access.Close()
 	}
+}
+
+func (g *Gateway) initSemanticRouter(cfg *routing.RoutingConfig) (*routing.SemanticRouter, error) {
+	var embedClient routing.Embedder
+
+	// initialize embedding client if semantic matching is enabled
+	if cfg.Semantic != nil && cfg.Semantic.Enabled {
+		baseURL, apiKey, httpClient := g.resolveEmbedProvider(cfg.Semantic.Provider)
+		if baseURL == "" {
+			return nil, fmt.Errorf("embedding provider '%s' not configured", cfg.Semantic.Provider)
+		}
+		if httpClient != nil {
+			embedClient = routing.NewEmbedClientWithHTTPClient(cfg.Semantic.Provider, cfg.Semantic.Model, baseURL, apiKey, httpClient)
+		} else {
+			embedClient = routing.NewEmbedClient(cfg.Semantic.Provider, cfg.Semantic.Model, baseURL, apiKey)
+		}
+	}
+
+	// resolve classifier provider connection details
+	var classifierBaseURL, classifierAPIKey string
+	if cfg.Classifier != nil && cfg.Classifier.Enabled {
+		classifierBaseURL, classifierAPIKey, _ = g.resolveEmbedProvider(cfg.Classifier.Provider)
+		if classifierBaseURL == "" {
+			return nil, fmt.Errorf("classifier provider '%s' not configured", cfg.Classifier.Provider)
+		}
+	}
+
+	ctx := context.Background()
+	return routing.NewSemanticRouterWithClassifier(ctx, cfg, embedClient, classifierBaseURL, classifierAPIKey)
+}
+
+// resolveEmbedProvider looks up connection details from provider config.
+func (g *Gateway) resolveEmbedProvider(provider string) (baseURL, apiKey string, httpClient *http.Client) {
+	if g.cfg.Providers == nil {
+		return "", "", nil
+	}
+
+	switch provider {
+	case "ollama":
+		if g.cfg.Providers.Ollama != nil {
+			baseURL = g.cfg.Providers.Ollama.BaseURL
+			if g.access != nil {
+				httpClient = g.access.HTTPClient()
+			}
+		}
+	case "openai":
+		if g.cfg.Providers.OpenAI != nil {
+			apiKey = os.ExpandEnv(g.cfg.Providers.OpenAI.APIKey)
+			baseURL = os.ExpandEnv(g.cfg.Providers.OpenAI.BaseURL)
+			if baseURL == "" {
+				baseURL = "https://api.openai.com"
+			}
+		}
+	}
+
+	return baseURL, apiKey, httpClient
 }

@@ -6,6 +6,7 @@ An OpenAI-compatible API proxy that routes requests to OpenAI, Anthropic, or Oll
 
 - **OpenAI-compatible API**: Drop-in replacement for OpenAI client libraries
 - **Multi-provider routing**: Automatically routes requests based on model name
+- **Semantic routing**: Optional three-layer cascade (heuristics, embeddings, LLM classifier) to automatically select the best model when `model` is omitted
 - **Anthropic translation**: Transparently converts OpenAI format to/from Anthropic's Messages API
 - **Streaming support**: Server-Sent Events (SSE) streaming for all providers
 - **zrok integration**: Expose the gateway via zrok private or public shares
@@ -34,12 +35,12 @@ go install ./...
 listen: ":8080"
 
 providers:
-  openai:
-    apiKey: "${OPENAI_API_KEY}"
+  open_ai:
+    api_key: "${OPENAI_API_KEY}"
   anthropic:
-    apiKey: "${ANTHROPIC_API_KEY}"
+    api_key: "${ANTHROPIC_API_KEY}"
   ollama:
-    baseURL: "http://localhost:11434"
+    base_url: "http://localhost:11434"
 ```
 
 2. Run the gateway:
@@ -77,7 +78,7 @@ Requests are routed based on model name prefix:
 
 ### POST /v1/chat/completions
 
-OpenAI-compatible chat completions endpoint. Supports both streaming (`stream: true`) and non-streaming requests.
+OpenAI-compatible chat completions endpoint. Supports both streaming (`stream: true`) and non-streaming requests. When semantic routing is enabled, the `model` field is optional.
 
 ### GET /v1/models
 
@@ -97,22 +98,101 @@ zrok:
     token: ""          # use existing persistent share (private only)
 
 providers:
-  openai:
-    apiKey: "${OPENAI_API_KEY}"
-    baseURL: ""        # optional: override for Azure or compatible APIs
+  open_ai:
+    api_key: "${OPENAI_API_KEY}"
+    base_url: ""       # optional: override for Azure or compatible APIs
 
   anthropic:
-    apiKey: "${ANTHROPIC_API_KEY}"
-    baseURL: ""        # optional: override base URL
+    api_key: "${ANTHROPIC_API_KEY}"
+    base_url: ""       # optional: override base URL
 
   ollama:
-    baseURL: "http://localhost:11434"
-    zrokShare: ""      # optional: connect via zrok share token
+    base_url: "http://localhost:11434"
+    zrok_share: ""     # optional: connect via zrok share token
 ```
 
 ### Environment Variables
 
 API keys support environment variable expansion using `${VAR}` syntax.
+
+## Semantic Routing
+
+When configured, the gateway can automatically select the best model for a request based on its content. The `model` field becomes optional — if omitted, the request passes through a three-layer cascade:
+
+1. **Heuristics** — fast keyword/pattern matching (e.g. "translate" -> fast model, tool use -> tool-capable model)
+2. **Embeddings** — cosine similarity between the user prompt and route exemplars using Ollama or OpenAI embeddings
+3. **LLM Classifier** — asks an LLM to classify the request when embeddings are ambiguous
+
+Each layer can be independently enabled or disabled. If all layers are skipped or inconclusive, the configured default route is used. When semantic routing is disabled or unconfigured, behavior is unchanged.
+
+### Semantic Routing Configuration
+
+```yaml
+routing:
+  allow_explicit_model: true    # clients can still specify a model directly
+  default_route: general        # fallback when no layer matches
+
+  heuristics:
+    enabled: true
+    rules:
+      - match:
+          keywords: ["translate", "translation"]
+        route: fast
+      - match:
+          has_tools: true
+        route: tools
+
+  semantic:
+    enabled: true
+    provider: ollama            # ollama or openai
+    model: nomic-embed-text
+    threshold: 0.82             # confident match
+    ambiguous_threshold: 0.65   # escalate to classifier
+    comparison: centroid         # centroid, max, or average
+
+  classifier:
+    enabled: true
+    provider: ollama
+    model: llama3
+    timeout_ms: 5000
+    confidence_threshold: 0.7
+
+  routes:
+    - name: coding
+      model: claude-sonnet-4-20250514
+      description: "code generation, debugging, and technical tasks"
+      examples:
+        - "write a python function to sort a list"
+        - "debug this segfault in my C code"
+
+    - name: fast
+      model: llama3
+      description: "simple tasks, translations, and short responses"
+      examples:
+        - "translate hello to French"
+        - "what is 2+2"
+
+    - name: general
+      model: llama3
+      description: "general conversation and miscellaneous tasks"
+      examples:
+        - "what is the capital of France"
+        - "explain quantum computing"
+```
+
+### Sending Requests Without a Model
+
+With semantic routing enabled, the `model` field can be omitted:
+
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "Write a Python function to sort a list"}]
+  }'
+```
+
+The gateway logs each routing decision with the method used, confidence score, latency, and cascade trace.
 
 ## CLI Reference
 
@@ -165,7 +245,7 @@ Run Ollama as a zrok share (zero exposed ports), then connect:
 ```yaml
 providers:
   ollama:
-    zrokShare: "ollama-share-token"
+    zrok_share: "ollama-share-token"
 ```
 
 ## Examples

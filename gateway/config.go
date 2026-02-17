@@ -1,11 +1,15 @@
 package gateway
 
-import "github.com/michaelquigley/df/dd"
+import (
+	"github.com/michaelquigley/df/dd"
+	"github.com/openziti/llm-gateway/routing"
+)
 
 type Config struct {
 	Listen    string
 	Zrok      *ZrokConfig
 	Providers *ProvidersConfig
+	Routing   *routing.RoutingConfig
 }
 
 type ZrokConfig struct {
