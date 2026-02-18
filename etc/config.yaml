@@ -12,14 +12,16 @@ providers:
   open_ai:
     api_key: "${OPENAI_API_KEY}"
     # base_url: "https://api.openai.com"  # optional: override for Azure or proxies
+    # zrok_share_token: "abc123"  # optional: connect via zrok share
 
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
     # base_url: "https://api.anthropic.com"  # optional: override base URL
+    # zrok_share_token: "abc123"  # optional: connect via zrok share
 
   ollama:
     base_url: "http://localhost:11434"
-    # zrok_share: "abc123"  # optional: connect to ollama via zrok
+    # zrok_share_token: "abc123"  # optional: connect via zrok share
 
 # semantic routing configuration
 # when enabled, the model field becomes optional in requests.

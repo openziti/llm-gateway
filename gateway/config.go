@@ -29,18 +29,20 @@ type ProvidersConfig struct {
 }
 
 type OpenAIConfig struct {
-	APIKey  string
-	BaseURL string
+	APIKey         string
+	BaseURL        string
+	ZrokShareToken string
 }
 
 type AnthropicConfig struct {
-	APIKey  string
-	BaseURL string
+	APIKey         string
+	BaseURL        string
+	ZrokShareToken string
 }
 
 type OllamaConfig struct {
-	BaseURL   string
-	ZrokShare string
+	BaseURL        string
+	ZrokShareToken string
 }
 
 func LoadConfig(path string) (*Config, error) {

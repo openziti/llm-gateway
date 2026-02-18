@@ -14,12 +14,13 @@ import (
 )
 
 type Gateway struct {
-	cfg            *Config
-	providers      map[providers.ProviderType]providers.Provider
-	router         *providers.Router
-	semanticRouter *routing.SemanticRouter
-	share          *Share
-	access         *Access
+	cfg              *Config
+	providers        map[providers.ProviderType]providers.Provider
+	router           *providers.Router
+	semanticRouter   *routing.SemanticRouter
+	share            *Share
+	accesses         []*Access
+	ollamaHTTPClient *http.Client
 }
 
 func New(cfg *Config) (*Gateway, error) {
@@ -54,11 +55,22 @@ func (g *Gateway) initProviders() error {
 	if g.cfg.Providers.OpenAI != nil && g.cfg.Providers.OpenAI.APIKey != "" {
 		apiKey := os.ExpandEnv(g.cfg.Providers.OpenAI.APIKey)
 		baseURL := os.ExpandEnv(g.cfg.Providers.OpenAI.BaseURL)
-		g.providers[providers.ProviderOpenAI] = providers.NewOpenAI(apiKey, baseURL)
-		if baseURL != "" {
-			dl.Infof("initialized openai provider at '%s'", baseURL)
+
+		if g.cfg.Providers.OpenAI.ZrokShareToken != "" {
+			access, err := NewAccess(g.cfg.Providers.OpenAI.ZrokShareToken)
+			if err != nil {
+				return err
+			}
+			g.accesses = append(g.accesses, access)
+			g.providers[providers.ProviderOpenAI] = providers.NewOpenAIWithClient(apiKey, baseURL, access.HTTPClient())
+			dl.Infof("initialized openai provider via zrok share '%s'", g.cfg.Providers.OpenAI.ZrokShareToken)
 		} else {
-			dl.Info("initialized openai provider")
+			g.providers[providers.ProviderOpenAI] = providers.NewOpenAI(apiKey, baseURL)
+			if baseURL != "" {
+				dl.Infof("initialized openai provider at '%s'", baseURL)
+			} else {
+				dl.Info("initialized openai provider")
+			}
 		}
 	}
 
@@ -66,11 +78,22 @@ func (g *Gateway) initProviders() error {
 	if g.cfg.Providers.Anthropic != nil && g.cfg.Providers.Anthropic.APIKey != "" {
 		apiKey := os.ExpandEnv(g.cfg.Providers.Anthropic.APIKey)
 		baseURL := os.ExpandEnv(g.cfg.Providers.Anthropic.BaseURL)
-		g.providers[providers.ProviderAnthropic] = providers.NewAnthropic(apiKey, baseURL)
-		if baseURL != "" {
-			dl.Infof("initialized anthropic provider at '%s'", baseURL)
+
+		if g.cfg.Providers.Anthropic.ZrokShareToken != "" {
+			access, err := NewAccess(g.cfg.Providers.Anthropic.ZrokShareToken)
+			if err != nil {
+				return err
+			}
+			g.accesses = append(g.accesses, access)
+			g.providers[providers.ProviderAnthropic] = providers.NewAnthropicWithClient(apiKey, baseURL, access.HTTPClient())
+			dl.Infof("initialized anthropic provider via zrok share '%s'", g.cfg.Providers.Anthropic.ZrokShareToken)
 		} else {
-			dl.Info("initialized anthropic provider")
+			g.providers[providers.ProviderAnthropic] = providers.NewAnthropic(apiKey, baseURL)
+			if baseURL != "" {
+				dl.Infof("initialized anthropic provider at '%s'", baseURL)
+			} else {
+				dl.Info("initialized anthropic provider")
+			}
 		}
 	}
 
@@ -78,15 +101,15 @@ func (g *Gateway) initProviders() error {
 	if g.cfg.Providers.Ollama != nil {
 		var ollama *providers.Ollama
 
-		if g.cfg.Providers.Ollama.ZrokShare != "" {
-			// connect to ollama via zrok
-			access, err := NewAccess(g.cfg.Providers.Ollama.ZrokShare)
+		if g.cfg.Providers.Ollama.ZrokShareToken != "" {
+			access, err := NewAccess(g.cfg.Providers.Ollama.ZrokShareToken)
 			if err != nil {
 				return err
 			}
-			g.access = access
-			ollama = providers.NewOllamaWithClient(g.cfg.Providers.Ollama.BaseURL, access.HTTPClient())
-			dl.Infof("initialized ollama provider via zrok share '%s'", g.cfg.Providers.Ollama.ZrokShare)
+			g.accesses = append(g.accesses, access)
+			g.ollamaHTTPClient = access.HTTPClient()
+			ollama = providers.NewOllamaWithClient(g.cfg.Providers.Ollama.BaseURL, g.ollamaHTTPClient)
+			dl.Infof("initialized ollama provider via zrok share '%s'", g.cfg.Providers.Ollama.ZrokShareToken)
 		} else {
 			ollama = providers.NewOllama(g.cfg.Providers.Ollama.BaseURL)
 			dl.Infof("initialized ollama provider at '%s'", g.cfg.Providers.Ollama.BaseURL)
@@ -190,8 +213,8 @@ func (g *Gateway) cleanup() {
 	if g.share != nil {
 		g.share.Close()
 	}
-	if g.access != nil {
-		g.access.Close()
+	for _, access := range g.accesses {
+		access.Close()
 	}
 }
 
@@ -234,9 +257,7 @@ func (g *Gateway) resolveEmbedProvider(provider string) (baseURL, apiKey string,
 	case "ollama":
 		if g.cfg.Providers.Ollama != nil {
 			baseURL = g.cfg.Providers.Ollama.BaseURL
-			if g.access != nil {
-				httpClient = g.access.HTTPClient()
-			}
+			httpClient = g.ollamaHTTPClient
 		}
 	case "openai":
 		if g.cfg.Providers.OpenAI != nil {
