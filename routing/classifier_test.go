@@ -175,6 +175,70 @@ func TestClassifierMatcherCaseInsensitiveCategory(t *testing.T) {
 	}
 }
 
+func TestClassifierMatcherCache(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		resp := classifierChatResponse{
+			Choices: []classifierChoice{
+				{
+					Message: classifierMessage{
+						Role:    "assistant",
+						Content: `{"category": "coding", "confidence": 0.95}`,
+					},
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cfg := &ClassifierConfig{
+		Enabled:             true,
+		Model:               "llama3",
+		ConfidenceThreshold: 0.5,
+		CacheResults:        true,
+		CacheTTL:            3600,
+		CacheSize:           100,
+	}
+
+	routes := []RouteConfig{
+		{Name: "coding", Model: "gpt-4", Description: "code generation"},
+	}
+
+	cm := NewClassifierMatcher(cfg, routes, server.URL, "")
+
+	info := &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "fix this bug in my code"}},
+	}
+
+	// first call: should hit the server
+	callCount = 0
+	route, confidence, err := cm.Classify(context.Background(), info)
+	if err != nil {
+		t.Fatalf("first classify error: %v", err)
+	}
+	if route != "coding" || confidence != 0.95 {
+		t.Errorf("first call: route=%q confidence=%f", route, confidence)
+	}
+	if callCount != 1 {
+		t.Errorf("expected 1 server call, got %d", callCount)
+	}
+
+	// second call with same input: should hit cache
+	callCount = 0
+	route, confidence, err = cm.Classify(context.Background(), info)
+	if err != nil {
+		t.Fatalf("second classify error: %v", err)
+	}
+	if route != "coding" || confidence != 0.95 {
+		t.Errorf("cached call: route=%q confidence=%f", route, confidence)
+	}
+	if callCount != 0 {
+		t.Errorf("expected 0 server calls (cache hit), got %d", callCount)
+	}
+}
+
 func TestClassifierMatcherWithAuth(t *testing.T) {
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

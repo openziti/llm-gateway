@@ -210,3 +210,98 @@ func TestHeuristicNoRules(t *testing.T) {
 		t.Errorf("no rules = %q, want empty", got)
 	}
 }
+
+func TestHeuristicWordBoundary(t *testing.T) {
+	m := NewHeuristicMatcher([]HeuristicRule{
+		{
+			Match: MatchCondition{Keywords: []string{"code"}},
+			Route: "coding",
+		},
+	})
+
+	// "code" should NOT match inside "unicode"
+	info := &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "explain unicode encoding"}},
+	}
+	if got := m.Match(info); got != "" {
+		t.Errorf("word boundary false positive = %q, want empty", got)
+	}
+
+	// "code" should match as a standalone word
+	info = &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "write some code for me"}},
+	}
+	if got := m.Match(info); got != "coding" {
+		t.Errorf("word boundary match = %q, want 'coding'", got)
+	}
+}
+
+func TestHeuristicMultiWordKeyword(t *testing.T) {
+	m := NewHeuristicMatcher([]HeuristicRule{
+		{
+			Match: MatchCondition{Keywords: []string{"step by step"}},
+			Route: "detailed",
+		},
+	})
+
+	info := &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "explain step by step how to bake a cake"}},
+	}
+	if got := m.Match(info); got != "detailed" {
+		t.Errorf("multi-word keyword = %q, want 'detailed'", got)
+	}
+
+	info = &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "take the next step"}},
+	}
+	if got := m.Match(info); got != "" {
+		t.Errorf("multi-word keyword partial = %q, want empty", got)
+	}
+}
+
+func TestHeuristicKeywordsIgnoreSystemPrompt(t *testing.T) {
+	m := NewHeuristicMatcher([]HeuristicRule{
+		{
+			Match: MatchCondition{Keywords: []string{"translate", "translation"}},
+			Route: "general",
+		},
+	})
+
+	// system prompt contains "translation" but user message does not
+	info := &RequestInfo{
+		Messages: []MessageInfo{
+			{Role: "system", Content: "You are a helpful assistant for coding, translation, and more"},
+			{Role: "user", Content: "how does gravity work on the moon"},
+		},
+	}
+	if got := m.Match(info); got != "" {
+		t.Errorf("keyword in system prompt should not match, got %q", got)
+	}
+
+	// same system prompt, but user message does contain the keyword
+	info = &RequestInfo{
+		Messages: []MessageInfo{
+			{Role: "system", Content: "You are a helpful assistant for coding, translation, and more"},
+			{Role: "user", Content: "translate this to French"},
+		},
+	}
+	if got := m.Match(info); got != "general" {
+		t.Errorf("keyword in user message should match, got %q", got)
+	}
+}
+
+func TestHeuristicSpecialCharKeyword(t *testing.T) {
+	m := NewHeuristicMatcher([]HeuristicRule{
+		{
+			Match: MatchCondition{Keywords: []string{"c++"}},
+			Route: "coding",
+		},
+	})
+
+	info := &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "write a c++ program"}},
+	}
+	if got := m.Match(info); got != "coding" {
+		t.Errorf("special char keyword = %q, want 'coding'", got)
+	}
+}

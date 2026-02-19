@@ -1,30 +1,50 @@
 package routing
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+// compiledRule pairs a HeuristicRule with precompiled keyword patterns.
+type compiledRule struct {
+	rule     HeuristicRule
+	patterns []*regexp.Regexp
+}
 
 // HeuristicMatcher evaluates heuristic rules against a request.
 type HeuristicMatcher struct {
-	rules []HeuristicRule
+	compiled []compiledRule
 }
 
 // NewHeuristicMatcher creates a new HeuristicMatcher with the given rules.
+// keyword patterns are compiled with word boundary anchors for accurate matching.
 func NewHeuristicMatcher(rules []HeuristicRule) *HeuristicMatcher {
-	return &HeuristicMatcher{rules: rules}
+	compiled := make([]compiledRule, len(rules))
+	for i, rule := range rules {
+		patterns := make([]*regexp.Regexp, len(rule.Match.Keywords))
+		for j, kw := range rule.Match.Keywords {
+			patterns[j] = regexp.MustCompile(keywordPattern(kw))
+		}
+		compiled[i] = compiledRule{rule: rule, patterns: patterns}
+	}
+	return &HeuristicMatcher{compiled: compiled}
 }
 
 // Match returns the route name of the first matching rule, or "" if no rules match.
 func (h *HeuristicMatcher) Match(info *RequestInfo) string {
-	for _, rule := range h.rules {
-		if h.matchRule(&rule.Match, info) {
-			return rule.Route
+	for _, cr := range h.compiled {
+		if h.matchRule(&cr, info) {
+			return cr.rule.Route
 		}
 	}
 	return ""
 }
 
-func (h *HeuristicMatcher) matchRule(cond *MatchCondition, info *RequestInfo) bool {
-	if len(cond.Keywords) > 0 {
-		if !h.matchKeywords(cond.Keywords, info) {
+func (h *HeuristicMatcher) matchRule(cr *compiledRule, info *RequestInfo) bool {
+	cond := &cr.rule.Match
+
+	if len(cr.patterns) > 0 {
+		if !h.matchKeywords(cr.patterns, info) {
 			return false
 		}
 	}
@@ -60,17 +80,40 @@ func (h *HeuristicMatcher) matchRule(cond *MatchCondition, info *RequestInfo) bo
 	return true
 }
 
-func (h *HeuristicMatcher) matchKeywords(keywords []string, info *RequestInfo) bool {
-	// build a combined text from all messages
+// keywordPattern builds a case-insensitive regex for a keyword with word boundary
+// anchors. boundaries are only added at edges that touch a word character, so keywords
+// like "c++" work correctly.
+func keywordPattern(kw string) string {
+	quoted := regexp.QuoteMeta(kw)
+	prefix := ""
+	suffix := ""
+	if len(kw) > 0 && isWordChar(kw[0]) {
+		prefix = `\b`
+	}
+	if len(kw) > 0 && isWordChar(kw[len(kw)-1]) {
+		suffix = `\b`
+	}
+	return `(?i)` + prefix + quoted + suffix
+}
+
+func isWordChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+}
+
+func (h *HeuristicMatcher) matchKeywords(patterns []*regexp.Regexp, info *RequestInfo) bool {
+	// build combined text from user messages only; system prompts are matched
+	// separately via the system_prompt_contains condition
 	var combined strings.Builder
 	for _, msg := range info.Messages {
-		combined.WriteString(strings.ToLower(msg.Content))
-		combined.WriteByte(' ')
+		if strings.ToLower(msg.Role) == "user" {
+			combined.WriteString(msg.Content)
+			combined.WriteByte(' ')
+		}
 	}
 	text := combined.String()
 
-	for _, kw := range keywords {
-		if strings.Contains(text, strings.ToLower(kw)) {
+	for _, p := range patterns {
+		if p.MatchString(text) {
 			return true
 		}
 	}

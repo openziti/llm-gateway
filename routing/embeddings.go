@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // routeEmbeddings holds precomputed embeddings for a route's exemplars.
@@ -20,6 +21,7 @@ type EmbeddingMatcher struct {
 	threshold  float64
 	ambiguous  float64
 	comparison string
+	cache      *lruCache[[]float64]
 }
 
 // NewEmbeddingMatcher creates a new EmbeddingMatcher, embedding all route exemplars at init.
@@ -33,6 +35,18 @@ func NewEmbeddingMatcher(ctx context.Context, client Embedder, routes []RouteCon
 
 	if em.comparison == "" {
 		em.comparison = "centroid"
+	}
+
+	if cfg.CacheEmbeddings {
+		ttl := cfg.CacheTTL
+		if ttl <= 0 {
+			ttl = 3600
+		}
+		size := cfg.CacheSize
+		if size <= 0 {
+			size = 1000
+		}
+		em.cache = newLRUCache[[]float64](size, time.Duration(ttl)*time.Second)
 	}
 
 	for _, route := range routes {
@@ -72,9 +86,21 @@ func (em *EmbeddingMatcher) Match(ctx context.Context, info *RequestInfo) (strin
 		prompt = prompt[:maxEmbedChars]
 	}
 
-	vec, err := em.client.Embed(ctx, prompt)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to embed prompt: %w", err)
+	var vec []float64
+	if em.cache != nil {
+		if cached, ok := em.cache.get(hashKey(prompt)); ok {
+			vec = cached
+		}
+	}
+	if vec == nil {
+		var err error
+		vec, err = em.client.Embed(ctx, prompt)
+		if err != nil {
+			return "", 0, fmt.Errorf("failed to embed prompt: %w", err)
+		}
+		if em.cache != nil {
+			em.cache.put(hashKey(prompt), vec)
+		}
 	}
 
 	var bestRoute string

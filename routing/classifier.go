@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+// classifiedResult holds a cached classification outcome.
+type classifiedResult struct {
+	route      string
+	confidence float64
+}
+
 // ClassifierMatcher performs LLM-based request classification.
 type ClassifierMatcher struct {
 	cfg     *ClassifierConfig
@@ -18,28 +24,48 @@ type ClassifierMatcher struct {
 	baseURL string
 	apiKey  string
 	routes  []RouteConfig
+	cache   *lruCache[classifiedResult]
 }
 
 // NewClassifierMatcher creates a new ClassifierMatcher.
 func NewClassifierMatcher(cfg *ClassifierConfig, routes []RouteConfig, baseURL, apiKey string) *ClassifierMatcher {
-	return &ClassifierMatcher{
+	cm := &ClassifierMatcher{
 		cfg:     cfg,
 		client:  http.DefaultClient,
 		baseURL: baseURL,
 		apiKey:  apiKey,
 		routes:  routes,
 	}
+	cm.cache = initClassifierCache(cfg)
+	return cm
 }
 
 // NewClassifierMatcherWithHTTPClient creates a new ClassifierMatcher with a custom HTTP client.
 func NewClassifierMatcherWithHTTPClient(cfg *ClassifierConfig, routes []RouteConfig, baseURL, apiKey string, client *http.Client) *ClassifierMatcher {
-	return &ClassifierMatcher{
+	cm := &ClassifierMatcher{
 		cfg:     cfg,
 		client:  client,
 		baseURL: baseURL,
 		apiKey:  apiKey,
 		routes:  routes,
 	}
+	cm.cache = initClassifierCache(cfg)
+	return cm
+}
+
+func initClassifierCache(cfg *ClassifierConfig) *lruCache[classifiedResult] {
+	if !cfg.CacheResults {
+		return nil
+	}
+	ttl := cfg.CacheTTL
+	if ttl <= 0 {
+		ttl = 3600
+	}
+	size := cfg.CacheSize
+	if size <= 0 {
+		size = 500
+	}
+	return newLRUCache[classifiedResult](size, time.Duration(ttl)*time.Second)
 }
 
 // classifierResponse is the expected JSON response from the classifier LLM.
@@ -50,6 +76,17 @@ type classifierResponse struct {
 
 // Classify sends the request to an LLM for classification and returns the route and confidence.
 func (cm *ClassifierMatcher) Classify(ctx context.Context, info *RequestInfo) (string, float64, error) {
+	cacheKey := ""
+	if cm.cache != nil {
+		userMsg := lastUserMessage(info)
+		if userMsg != "" {
+			cacheKey = hashKey(userMsg)
+			if cached, ok := cm.cache.get(cacheKey); ok {
+				return cached.route, cached.confidence, nil
+			}
+		}
+	}
+
 	if cm.cfg.TimeoutMs > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(cm.cfg.TimeoutMs)*time.Millisecond)
@@ -118,6 +155,9 @@ func (cm *ClassifierMatcher) Classify(ctx context.Context, info *RequestInfo) (s
 	// validate the category is a known route
 	for _, r := range cm.routes {
 		if strings.EqualFold(r.Name, result.Category) {
+			if cm.cache != nil && cacheKey != "" {
+				cm.cache.put(cacheKey, classifiedResult{route: r.Name, confidence: result.Confidence})
+			}
 			return r.Name, result.Confidence, nil
 		}
 	}

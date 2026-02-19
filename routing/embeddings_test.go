@@ -184,6 +184,74 @@ func TestEmbeddingMatcherNoUserMessage(t *testing.T) {
 	}
 }
 
+// countingEmbedder wraps an Embedder and counts Embed calls.
+type countingEmbedder struct {
+	inner      Embedder
+	embedCount int
+}
+
+func (c *countingEmbedder) Embed(ctx context.Context, text string) ([]float64, error) {
+	c.embedCount++
+	return c.inner.Embed(ctx, text)
+}
+
+func (c *countingEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float64, error) {
+	return c.inner.EmbedBatch(ctx, texts)
+}
+
+func TestEmbeddingMatcherCache(t *testing.T) {
+	inner := &mockEmbedder{
+		vectors: map[string][]float64{
+			"write code":    {1, 0},
+			"fix bugs":      {0.9, 0.1},
+			"debug my code": {0.95, 0.05},
+		},
+	}
+	counter := &countingEmbedder{inner: inner}
+
+	routes := []RouteConfig{
+		{Name: "coding", Model: "gpt-4", Examples: []string{"write code", "fix bugs"}},
+	}
+
+	cfg := &SemanticConfig{
+		Enabled:         true,
+		Threshold:       0.8,
+		Comparison:      "centroid",
+		CacheEmbeddings: true,
+		CacheTTL:        3600,
+		CacheSize:       100,
+	}
+
+	em, err := NewEmbeddingMatcher(context.Background(), counter, routes, cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info := &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "debug my code"}},
+	}
+
+	// first call: should call Embed
+	counter.embedCount = 0
+	_, _, err = em.Match(context.Background(), info)
+	if err != nil {
+		t.Fatalf("first match error: %v", err)
+	}
+	if counter.embedCount != 1 {
+		t.Errorf("expected 1 embed call, got %d", counter.embedCount)
+	}
+
+	// second call with same input: should hit cache
+	counter.embedCount = 0
+	_, _, err = em.Match(context.Background(), info)
+	if err != nil {
+		t.Fatalf("second match error: %v", err)
+	}
+	if counter.embedCount != 0 {
+		t.Errorf("expected 0 embed calls (cache hit), got %d", counter.embedCount)
+	}
+}
+
 func TestEmbeddingMatcherNoExamples(t *testing.T) {
 	embedder := &mockEmbedder{vectors: map[string][]float64{}}
 

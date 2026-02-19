@@ -2,6 +2,7 @@ package routing
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -131,14 +132,14 @@ func (sr *SemanticRouter) Route(ctx context.Context, info *RequestInfo) (*Decisi
 			Method:     MethodExplicit,
 			Confidence: 1.0,
 			LatencyMs:  time.Since(start).Milliseconds(),
-			Cascade:    []string{"explicit"},
+			Cascade:    []string{fmt.Sprintf("explicit:%s", info.Model)},
 		}, nil
 	}
 
 	// layer 1: heuristics
 	if sr.heuristics != nil {
-		cascade = append(cascade, "heuristic")
 		if route := sr.heuristics.Match(info); route != "" {
+			cascade = append(cascade, fmt.Sprintf("heuristic:%s", route))
 			if rc, ok := sr.routeMap[route]; ok {
 				return &Decision{
 					Route:      route,
@@ -149,12 +150,13 @@ func (sr *SemanticRouter) Route(ctx context.Context, info *RequestInfo) (*Decisi
 					Cascade:    cascade,
 				}, nil
 			}
+		} else {
+			cascade = append(cascade, "heuristic:no_match")
 		}
 	}
 
 	// layer 2: embedding similarity
 	if sr.embeddings != nil {
-		cascade = append(cascade, "semantic")
 		route, confidence, err := sr.embeddings.Match(ctx, info)
 		if err != nil {
 			dl.Errorf("embedding match error: %v", err)
@@ -164,6 +166,7 @@ func (sr *SemanticRouter) Route(ctx context.Context, info *RequestInfo) (*Decisi
 			ambiguous := sr.cfg.Semantic.AmbiguousThreshold
 
 			if confidence >= threshold {
+				cascade = append(cascade, fmt.Sprintf("semantic:%s:%.2f", route, confidence))
 				if rc, ok := sr.routeMap[route]; ok {
 					return &Decision{
 						Route:      route,
@@ -178,11 +181,13 @@ func (sr *SemanticRouter) Route(ctx context.Context, info *RequestInfo) (*Decisi
 
 			// ambiguous: escalate to classifier if available
 			if confidence >= ambiguous && sr.classifier != nil {
-				cascade = append(cascade, "classifier")
+				cascade = append(cascade, fmt.Sprintf("semantic:%s:%.2f:ambiguous", route, confidence))
 				cRoute, cConf, cErr := sr.classifier.Classify(ctx, info)
 				if cErr != nil {
 					dl.Errorf("classifier error: %v", cErr)
+					cascade = append(cascade, "classifier:no_match")
 				} else if cRoute != "" && cConf >= sr.cfg.Classifier.ConfidenceThreshold {
+					cascade = append(cascade, fmt.Sprintf("classifier:%s:%.2f", cRoute, cConf))
 					if rc, ok := sr.routeMap[cRoute]; ok {
 						return &Decision{
 							Route:      cRoute,
@@ -193,16 +198,23 @@ func (sr *SemanticRouter) Route(ctx context.Context, info *RequestInfo) (*Decisi
 							Cascade:    cascade,
 						}, nil
 					}
+				} else {
+					cascade = append(cascade, "classifier:no_match")
 				}
+			} else {
+				cascade = append(cascade, "semantic:no_match")
 			}
+		} else {
+			cascade = append(cascade, "semantic:no_match")
 		}
 	} else if sr.classifier != nil {
 		// no embeddings configured, try classifier directly
-		cascade = append(cascade, "classifier")
 		route, confidence, err := sr.classifier.Classify(ctx, info)
 		if err != nil {
 			dl.Errorf("classifier error: %v", err)
+			cascade = append(cascade, "classifier:no_match")
 		} else if route != "" && confidence >= sr.cfg.Classifier.ConfidenceThreshold {
+			cascade = append(cascade, fmt.Sprintf("classifier:%s:%.2f", route, confidence))
 			if rc, ok := sr.routeMap[route]; ok {
 				return &Decision{
 					Route:      route,
@@ -213,13 +225,15 @@ func (sr *SemanticRouter) Route(ctx context.Context, info *RequestInfo) (*Decisi
 					Cascade:    cascade,
 				}, nil
 			}
+		} else {
+			cascade = append(cascade, "classifier:no_match")
 		}
 	}
 
 	// default route
-	cascade = append(cascade, "default")
 	if sr.cfg.DefaultRoute != "" {
 		if rc, ok := sr.routeMap[sr.cfg.DefaultRoute]; ok {
+			cascade = append(cascade, fmt.Sprintf("default:%s", sr.cfg.DefaultRoute))
 			return &Decision{
 				Route:      sr.cfg.DefaultRoute,
 				Model:      rc.Model,
@@ -234,6 +248,7 @@ func (sr *SemanticRouter) Route(ctx context.Context, info *RequestInfo) (*Decisi
 	// absolute fallback: use first route
 	if len(sr.cfg.Routes) > 0 {
 		rc := sr.cfg.Routes[0]
+		cascade = append(cascade, fmt.Sprintf("default:%s", rc.Name))
 		return &Decision{
 			Route:      rc.Name,
 			Model:      rc.Model,
@@ -244,6 +259,7 @@ func (sr *SemanticRouter) Route(ctx context.Context, info *RequestInfo) (*Decisi
 		}, nil
 	}
 
+	cascade = append(cascade, "default")
 	return &Decision{
 		Method:    MethodDefault,
 		LatencyMs: time.Since(start).Milliseconds(),

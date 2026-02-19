@@ -225,9 +225,115 @@ func TestSemanticRouterCascadeOrder(t *testing.T) {
 		t.Errorf("expected default method, got %s", decision.Method)
 	}
 
-	// cascade should show all attempted layers
+	// cascade should show all attempted layers with detail
 	if len(decision.Cascade) < 3 {
 		t.Errorf("expected at least 3 cascade entries, got %v", decision.Cascade)
+	}
+	if decision.Cascade[0] != "heuristic:no_match" {
+		t.Errorf("expected cascade[0] = 'heuristic:no_match', got %q", decision.Cascade[0])
+	}
+	// semantic entry should start with "semantic:"
+	if len(decision.Cascade) > 1 {
+		if decision.Cascade[1][:9] != "semantic:" {
+			t.Errorf("expected cascade[1] to start with 'semantic:', got %q", decision.Cascade[1])
+		}
+	}
+	// last entry should start with "default:"
+	last := decision.Cascade[len(decision.Cascade)-1]
+	if last[:8] != "default:" {
+		t.Errorf("expected last cascade entry to start with 'default:', got %q", last)
+	}
+}
+
+func TestSemanticRouterHeuristicCascadeFormat(t *testing.T) {
+	cfg := &RoutingConfig{
+		DefaultRoute: "general",
+		Heuristics: &HeuristicsConfig{
+			Enabled: true,
+			Rules: []HeuristicRule{
+				{
+					Match: MatchCondition{Keywords: []string{"translate"}},
+					Route: "fast",
+				},
+			},
+		},
+		Routes: []RouteConfig{
+			{Name: "fast", Model: "llama3"},
+			{Name: "general", Model: "gpt-4"},
+		},
+	}
+
+	sr, err := NewSemanticRouter(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info := &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "translate this to French"}},
+	}
+
+	decision, err := sr.Route(context.Background(), info)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(decision.Cascade) != 1 || decision.Cascade[0] != "heuristic:fast" {
+		t.Errorf("expected cascade ['heuristic:fast'], got %v", decision.Cascade)
+	}
+}
+
+func TestSemanticRouterExplicitCascadeFormat(t *testing.T) {
+	cfg := &RoutingConfig{
+		DefaultRoute: "general",
+		Routes: []RouteConfig{
+			{Name: "general", Model: "llama3"},
+		},
+	}
+
+	sr, err := NewSemanticRouter(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info := &RequestInfo{
+		Model:    "gpt-4",
+		Messages: []MessageInfo{{Role: "user", Content: "hello"}},
+	}
+
+	decision, err := sr.Route(context.Background(), info)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(decision.Cascade) != 1 || decision.Cascade[0] != "explicit:gpt-4" {
+		t.Errorf("expected cascade ['explicit:gpt-4'], got %v", decision.Cascade)
+	}
+}
+
+func TestSemanticRouterDefaultCascadeFormat(t *testing.T) {
+	cfg := &RoutingConfig{
+		DefaultRoute: "general",
+		Routes: []RouteConfig{
+			{Name: "general", Model: "llama3"},
+		},
+	}
+
+	sr, err := NewSemanticRouter(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info := &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "hello"}},
+	}
+
+	decision, err := sr.Route(context.Background(), info)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(decision.Cascade) != 1 || decision.Cascade[0] != "default:general" {
+		t.Errorf("expected cascade ['default:general'], got %v", decision.Cascade)
 	}
 }
 

@@ -49,6 +49,9 @@ type SemanticConfig struct {
 	Threshold          float64
 	AmbiguousThreshold float64
 	Comparison         string // centroid, max, or average
+	CacheEmbeddings    bool
+	CacheTTL           int // seconds, default 3600
+	CacheSize          int // max entries, default 1000
 }
 
 // ClassifierConfig configures LLM-based classification.
@@ -58,6 +61,9 @@ type ClassifierConfig struct {
 	Model               string
 	TimeoutMs           int
 	ConfidenceThreshold float64
+	CacheResults        bool
+	CacheTTL            int // seconds, default 3600
+	CacheSize           int // max entries, default 500
 }
 
 // RouteConfig defines a named route with a target model and exemplars.
