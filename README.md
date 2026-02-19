@@ -10,7 +10,7 @@ An OpenAI-compatible API proxy that routes requests to OpenAI, Anthropic, or Oll
 - **Anthropic translation**: Transparently converts OpenAI format to/from Anthropic's Messages API
 - **Streaming support**: Server-Sent Events (SSE) streaming for all providers
 - **zrok integration**: Expose the gateway via zrok private or public shares
-- **Zero-trust backends**: Connect to Ollama instances via zrok (no exposed ports)
+- **Zero-trust backends**: Connect to any provider via zrok shares (no exposed ports)
 
 ## Installation
 
@@ -100,15 +100,17 @@ zrok:
 providers:
   open_ai:
     api_key: "${OPENAI_API_KEY}"
-    base_url: ""       # optional: override for Azure or compatible APIs
+    base_url: ""             # optional: override for Azure or compatible APIs
+    zrok_share_token: ""     # optional: connect via zrok share
 
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
-    base_url: ""       # optional: override base URL
+    base_url: ""             # optional: override base URL
+    zrok_share_token: ""     # optional: connect via zrok share
 
   ollama:
     base_url: "http://localhost:11434"
-    zrok_share: ""     # optional: connect via zrok share token
+    zrok_share_token: ""     # optional: connect via zrok share
 ```
 
 ### Environment Variables
@@ -253,14 +255,22 @@ zrok:
     token: "abc123xyz"  # your persistent share token
 ```
 
-### Connecting to Ollama via zrok
+### Connecting to Backends via zrok
 
-Run Ollama as a zrok share (zero exposed ports), then connect:
+Any provider can be reached through a zrok share instead of a direct URL:
 
 ```yaml
 providers:
+  open_ai:
+    api_key: "${OPENAI_API_KEY}"
+    zrok_share_token: "openai-proxy-share-token"
+
+  anthropic:
+    api_key: "${ANTHROPIC_API_KEY}"
+    zrok_share_token: "anthropic-proxy-share-token"
+
   ollama:
-    zrok_share: "ollama-share-token"
+    zrok_share_token: "ollama-share-token"
 ```
 
 ## Examples
