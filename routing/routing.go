@@ -2,6 +2,7 @@ package routing
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/michaelquigley/df/dl"
@@ -94,14 +95,19 @@ func NewSemanticRouter(ctx context.Context, cfg *RoutingConfig, embedClient Embe
 }
 
 // NewSemanticRouterWithClassifier creates a SemanticRouter with explicit classifier connection details.
-func NewSemanticRouterWithClassifier(ctx context.Context, cfg *RoutingConfig, embedClient Embedder, classifierBaseURL, classifierAPIKey string) (*SemanticRouter, error) {
+// If httpClient is non-nil it is used for classifier requests (e.g. for zrok transport).
+func NewSemanticRouterWithClassifier(ctx context.Context, cfg *RoutingConfig, embedClient Embedder, classifierBaseURL, classifierAPIKey string, httpClient *http.Client) (*SemanticRouter, error) {
 	sr, err := NewSemanticRouter(ctx, cfg, embedClient)
 	if err != nil {
 		return nil, err
 	}
 
 	if cfg.Classifier != nil && cfg.Classifier.Enabled {
-		sr.classifier = NewClassifierMatcher(cfg.Classifier, cfg.Routes, classifierBaseURL, classifierAPIKey)
+		if httpClient != nil {
+			sr.classifier = NewClassifierMatcherWithHTTPClient(cfg.Classifier, cfg.Routes, classifierBaseURL, classifierAPIKey, httpClient)
+		} else {
+			sr.classifier = NewClassifierMatcher(cfg.Classifier, cfg.Routes, classifierBaseURL, classifierAPIKey)
+		}
 		dl.Info("initialized classifier matcher with explicit provider config")
 	}
 

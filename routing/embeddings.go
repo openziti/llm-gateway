@@ -56,12 +56,20 @@ func NewEmbeddingMatcher(ctx context.Context, client Embedder, routes []RouteCon
 	return em, nil
 }
 
+// maxEmbedChars is the maximum number of characters sent to the embedding model.
+// truncating long messages avoids context-length errors while preserving enough
+// text for accurate intent classification.
+const maxEmbedChars = 2048
+
 // Match embeds the user prompt and returns the best matching route with confidence.
 func (em *EmbeddingMatcher) Match(ctx context.Context, info *RequestInfo) (string, float64, error) {
 	// extract the last user message for embedding
 	prompt := lastUserMessage(info)
 	if prompt == "" {
 		return "", 0, nil
+	}
+	if len(prompt) > maxEmbedChars {
+		prompt = prompt[:maxEmbedChars]
 	}
 
 	vec, err := em.client.Embed(ctx, prompt)

@@ -236,15 +236,16 @@ func (g *Gateway) initSemanticRouter(cfg *routing.RoutingConfig) (*routing.Seman
 
 	// resolve classifier provider connection details
 	var classifierBaseURL, classifierAPIKey string
+	var classifierHTTPClient *http.Client
 	if cfg.Classifier != nil && cfg.Classifier.Enabled {
-		classifierBaseURL, classifierAPIKey, _ = g.resolveEmbedProvider(cfg.Classifier.Provider)
+		classifierBaseURL, classifierAPIKey, classifierHTTPClient = g.resolveEmbedProvider(cfg.Classifier.Provider)
 		if classifierBaseURL == "" {
 			return nil, fmt.Errorf("classifier provider '%s' not configured", cfg.Classifier.Provider)
 		}
 	}
 
 	ctx := context.Background()
-	return routing.NewSemanticRouterWithClassifier(ctx, cfg, embedClient, classifierBaseURL, classifierAPIKey)
+	return routing.NewSemanticRouterWithClassifier(ctx, cfg, embedClient, classifierBaseURL, classifierAPIKey, classifierHTTPClient)
 }
 
 // resolveEmbedProvider looks up connection details from provider config.
@@ -257,6 +258,9 @@ func (g *Gateway) resolveEmbedProvider(provider string) (baseURL, apiKey string,
 	case "ollama":
 		if g.cfg.Providers.Ollama != nil {
 			baseURL = g.cfg.Providers.Ollama.BaseURL
+			if baseURL == "" {
+				baseURL = "http://localhost:11434"
+			}
 			httpClient = g.ollamaHTTPClient
 		}
 	case "openai":

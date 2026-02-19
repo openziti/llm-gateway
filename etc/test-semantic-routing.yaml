@@ -10,7 +10,7 @@ providers:
     api_key: "${ANTHROPIC_API_KEY}"
 
   ollama:
-    base_url: "http://localhost:11434"
+    zrok_share_token: zz1vyb7z2561
 
 routing:
   allow_explicit_model: true
@@ -34,13 +34,13 @@ routing:
   classifier:
     enabled: true
     provider: ollama
-    model: llama3.2
+    model: qwen3-vl:30b
     timeout_ms: 10000
     confidence_threshold: 0.7
 
   routes:
     - name: coding
-      model: claude-sonnet-4-20250514
+      model: claude-haiku-4-5-20251001
       description: "code generation, debugging, code review, and technical programming tasks"
       examples:
         - "write a python function to sort a list"
@@ -49,7 +49,7 @@ routing:
         - "implement a binary search tree in Go"
 
     - name: general
-      model: llama3.2
+      model: qwen3-vl:30b
       description: "general knowledge, conversation, translations, and everyday questions"
       examples:
         - "what is the capital of France"
