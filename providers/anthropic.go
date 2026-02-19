@@ -266,12 +266,21 @@ func (a *Anthropic) readSSEStream(body io.ReadCloser, events chan<- StreamEvent,
 }
 
 func (a *Anthropic) ListModels(ctx context.Context) ([]Model, error) {
-	// anthropic doesn't have a models endpoint, return static list
+	// anthropic doesn't have a public models list endpoint, return static list.
+	// current models listed first, then legacy models still available via the API.
+	// see https://docs.anthropic.com/en/docs/about-claude/models/overview
 	return []Model{
-		{ID: "claude-3-5-sonnet-20241022", Object: "model", OwnedBy: "anthropic"},
-		{ID: "claude-3-5-haiku-20241022", Object: "model", OwnedBy: "anthropic"},
-		{ID: "claude-3-opus-20240229", Object: "model", OwnedBy: "anthropic"},
-		{ID: "claude-3-sonnet-20240229", Object: "model", OwnedBy: "anthropic"},
+		// current models
+		{ID: "claude-opus-4-6", Object: "model", OwnedBy: "anthropic"},
+		{ID: "claude-sonnet-4-6", Object: "model", OwnedBy: "anthropic"},
+		{ID: "claude-haiku-4-5-20251001", Object: "model", OwnedBy: "anthropic"},
+		// legacy models
+		{ID: "claude-sonnet-4-5-20250929", Object: "model", OwnedBy: "anthropic"},
+		{ID: "claude-opus-4-5-20251101", Object: "model", OwnedBy: "anthropic"},
+		{ID: "claude-opus-4-1-20250805", Object: "model", OwnedBy: "anthropic"},
+		{ID: "claude-sonnet-4-20250514", Object: "model", OwnedBy: "anthropic"},
+		{ID: "claude-opus-4-20250514", Object: "model", OwnedBy: "anthropic"},
+		{ID: "claude-3-7-sonnet-20250219", Object: "model", OwnedBy: "anthropic"},
 		{ID: "claude-3-haiku-20240307", Object: "model", OwnedBy: "anthropic"},
 	}, nil
 }

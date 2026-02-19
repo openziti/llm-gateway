@@ -125,7 +125,7 @@ When configured, the gateway can automatically select the best model for a reque
 2. **Embeddings** — cosine similarity between the user prompt and route exemplars using Ollama or OpenAI embeddings
 3. **LLM Classifier** — asks an LLM to classify the request when embeddings are ambiguous
 
-Each layer can be independently enabled or disabled. If all layers are skipped or inconclusive, the configured default route is used. When semantic routing is disabled or unconfigured, behavior is unchanged.
+Each layer can be independently enabled or disabled — for example, the classifier can be used without embeddings. If all layers are skipped or inconclusive, the configured default route is used. When semantic routing is disabled or unconfigured, behavior is unchanged.
 
 ### Semantic Routing Configuration
 
@@ -143,6 +143,13 @@ routing:
       - match:
           has_tools: true
         route: tools
+      - match:
+          system_prompt_contains: "you are a code assistant"
+        route: coding
+      - match:
+          max_tokens_lt: 100
+          message_length_lt: 200
+        route: fast
 
   semantic:
     enabled: true
@@ -167,12 +174,26 @@ routing:
         - "write a python function to sort a list"
         - "debug this segfault in my C code"
 
+    - name: creative
+      model: claude-sonnet-4-20250514
+      description: "creative writing, storytelling, and artistic content"
+      examples:
+        - "write a poem about the ocean"
+        - "tell me a story about a dragon"
+
     - name: fast
       model: llama3
       description: "simple tasks, translations, and short responses"
       examples:
         - "translate hello to French"
         - "what is 2+2"
+
+    - name: tools
+      model: gpt-4
+      description: "tasks requiring tool use and function calling"
+      examples:
+        - "search the web for recent news"
+        - "call the weather API for New York"
 
     - name: general
       model: llama3
@@ -181,6 +202,18 @@ routing:
         - "what is the capital of France"
         - "explain quantum computing"
 ```
+
+### Heuristic Match Conditions
+
+Each heuristic rule has a `match` block with one or more conditions. When multiple conditions are specified in a single rule, all must match (AND logic). Within `keywords`, any keyword matching triggers the rule (OR logic). Available conditions:
+
+| Condition | Description |
+|-----------|-------------|
+| `keywords` | Case-insensitive substring match against message content |
+| `has_tools` | Matches if request includes/lacks tool definitions |
+| `system_prompt_contains` | Substring match on the system message |
+| `max_tokens_lt` | Matches if `max_tokens` is below a threshold |
+| `message_length_lt` | Matches if total message character length is below a threshold |
 
 ### Sending Requests Without a Model
 
