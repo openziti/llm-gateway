@@ -23,13 +23,18 @@ type Gateway struct {
 	ollamaHTTPClient *http.Client
 }
 
-func New(cfg *Config) (*Gateway, error) {
+func New(cfg *Config) (_ *Gateway, err error) {
 	g := &Gateway{
 		cfg:       cfg,
 		providers: make(map[providers.ProviderType]providers.Provider),
 	}
+	defer func() {
+		if err != nil {
+			g.cleanup()
+		}
+	}()
 
-	if err := g.initProviders(); err != nil {
+	if err = g.initProviders(); err != nil {
 		return nil, err
 	}
 
@@ -127,6 +132,7 @@ func (g *Gateway) Run() error {
 	// setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	defer g.cleanup()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -135,7 +141,6 @@ func (g *Gateway) Run() error {
 		<-sigCh
 		dl.Info("received shutdown signal")
 		cancel()
-		g.cleanup()
 	}()
 
 	if g.cfg.Zrok != nil && g.cfg.Zrok.Share != nil && g.cfg.Zrok.Share.Enabled {

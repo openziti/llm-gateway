@@ -2,6 +2,8 @@ package main
 
 import (
 	"github.com/michaelquigley/df/dl"
+	"github.com/michaelquigley/pfxlog"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -12,6 +14,7 @@ var rootCmd = &cobra.Command{
 
 func main() {
 	dl.Init(dl.DefaultOptions().SetTrimPrefix("github.com/openziti/"))
+	pfxlog.GlobalInit(logrus.WarnLevel, pfxlog.DefaultOptions().SetTrimPrefix("github.com/openziti/"))
 	if err := rootCmd.Execute(); err != nil {
 		dl.Fatal(err)
 	}
