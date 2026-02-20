@@ -3,10 +3,12 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/michaelquigley/df/dl"
 	"github.com/openziti/llm-gateway/providers"
@@ -21,6 +23,8 @@ type Gateway struct {
 	share            *Share
 	accesses         []*Access
 	ollamaHTTPClient *http.Client
+	meters           *meters
+	metricsHandler   http.Handler
 }
 
 func New(cfg *Config) (_ *Gateway, err error) {
@@ -39,6 +43,16 @@ func New(cfg *Config) (_ *Gateway, err error) {
 	}
 
 	g.router = providers.NewRouter(g.providers)
+
+	if cfg.Metrics != nil && cfg.Metrics.Enabled {
+		m, handler, err := initMetrics()
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize metrics: %w", err)
+		}
+		g.meters = m
+		g.metricsHandler = handler
+		dl.Info("initialized opentelemetry metrics")
+	}
 
 	if cfg.Routing != nil {
 		sr, err := g.initSemanticRouter(cfg.Routing)
@@ -104,24 +118,81 @@ func (g *Gateway) initProviders() error {
 
 	// initialize ollama provider
 	if g.cfg.Providers.Ollama != nil {
-		var ollama *providers.Ollama
-
-		if g.cfg.Providers.Ollama.ZrokShareToken != "" {
-			access, err := NewAccess(g.cfg.Providers.Ollama.ZrokShareToken)
-			if err != nil {
+		if len(g.cfg.Providers.Ollama.Endpoints) > 0 {
+			if err := g.initOllamaMulti(); err != nil {
 				return err
 			}
-			g.accesses = append(g.accesses, access)
-			g.ollamaHTTPClient = access.HTTPClient()
-			ollama = providers.NewOllamaWithClient(g.cfg.Providers.Ollama.BaseURL, g.ollamaHTTPClient)
-			dl.Infof("initialized ollama provider via zrok share '%s'", g.cfg.Providers.Ollama.ZrokShareToken)
 		} else {
-			ollama = providers.NewOllama(g.cfg.Providers.Ollama.BaseURL)
-			dl.Infof("initialized ollama provider at '%s'", g.cfg.Providers.Ollama.BaseURL)
+			g.initOllamaSingle()
 		}
-
-		g.providers[providers.ProviderOllama] = ollama
 	}
+
+	return nil
+}
+
+func (g *Gateway) initOllamaSingle() {
+	cfg := g.cfg.Providers.Ollama
+	if cfg.ZrokShareToken != "" {
+		access, err := NewAccess(cfg.ZrokShareToken)
+		if err != nil {
+			dl.Errorf("failed to create zrok access for ollama: %v", err)
+			return
+		}
+		g.accesses = append(g.accesses, access)
+		g.ollamaHTTPClient = access.HTTPClient()
+		g.providers[providers.ProviderOllama] = providers.NewOllamaWithClient(cfg.BaseURL, g.ollamaHTTPClient)
+		dl.Infof("initialized ollama provider via zrok share '%s'", cfg.ZrokShareToken)
+	} else {
+		g.providers[providers.ProviderOllama] = providers.NewOllama(cfg.BaseURL)
+		dl.Infof("initialized ollama provider at '%s'", cfg.BaseURL)
+	}
+}
+
+func (g *Gateway) initOllamaMulti() error {
+	cfg := g.cfg.Providers.Ollama
+	opts := make([]providers.EndpointOption, 0, len(cfg.Endpoints))
+
+	for _, ep := range cfg.Endpoints {
+		opt := providers.EndpointOption{
+			Name:    ep.Name,
+			BaseURL: ep.BaseURL,
+		}
+		if ep.ZrokShareToken != "" {
+			access, err := NewAccess(ep.ZrokShareToken)
+			if err != nil {
+				return fmt.Errorf("failed to create zrok access for endpoint '%s': %w", ep.Name, err)
+			}
+			g.accesses = append(g.accesses, access)
+			opt.HTTPClient = access.HTTPClient()
+		}
+		opts = append(opts, opt)
+	}
+
+	multi := providers.NewMultiOllama(opts)
+
+	// start health checks
+	interval := 30 * time.Second
+	timeout := 5 * time.Second
+	if cfg.HealthCheck != nil {
+		if cfg.HealthCheck.IntervalSeconds > 0 {
+			interval = time.Duration(cfg.HealthCheck.IntervalSeconds) * time.Second
+		}
+		if cfg.HealthCheck.TimeoutSeconds > 0 {
+			timeout = time.Duration(cfg.HealthCheck.TimeoutSeconds) * time.Second
+		}
+	}
+	multi.StartHealthChecks(interval, timeout)
+
+	g.providers[providers.ProviderOllama] = multi
+
+	for _, ep := range cfg.Endpoints {
+		if ep.ZrokShareToken != "" {
+			dl.Infof("initialized ollama endpoint '%s' via zrok share '%s'", ep.Name, ep.ZrokShareToken)
+		} else {
+			dl.Infof("initialized ollama endpoint '%s' at '%s'", ep.Name, ep.BaseURL)
+		}
+	}
+	dl.Infof("initialized multi-endpoint ollama provider with %d endpoints", len(cfg.Endpoints))
 
 	return nil
 }
@@ -215,6 +286,11 @@ func (g *Gateway) runWithZrok(ctx context.Context, handler http.Handler) error {
 }
 
 func (g *Gateway) cleanup() {
+	for _, p := range g.providers {
+		if c, ok := p.(io.Closer); ok {
+			c.Close()
+		}
+	}
 	if g.share != nil {
 		g.share.Close()
 	}
@@ -262,11 +338,16 @@ func (g *Gateway) resolveEmbedProvider(provider string) (baseURL, apiKey string,
 	switch provider {
 	case "ollama":
 		if g.cfg.Providers.Ollama != nil {
-			baseURL = g.cfg.Providers.Ollama.BaseURL
-			if baseURL == "" {
-				baseURL = "http://localhost:11434"
+			if multi, ok := g.providers[providers.ProviderOllama].(*providers.MultiOllama); ok {
+				baseURL = multi.PrimaryBaseURL()
+				httpClient = multi.RoundRobinClient()
+			} else {
+				baseURL = g.cfg.Providers.Ollama.BaseURL
+				if baseURL == "" {
+					baseURL = "http://localhost:11434"
+				}
+				httpClient = g.ollamaHTTPClient
 			}
-			httpClient = g.ollamaHTTPClient
 		}
 	case "openai":
 		if g.cfg.Providers.OpenAI != nil {

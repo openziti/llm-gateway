@@ -10,6 +10,7 @@ type Config struct {
 	Zrok      *ZrokConfig
 	Providers *ProvidersConfig
 	Routing   *routing.RoutingConfig
+	Metrics   *MetricsConfig
 }
 
 type ZrokConfig struct {
@@ -43,6 +44,24 @@ type AnthropicConfig struct {
 type OllamaConfig struct {
 	BaseURL        string
 	ZrokShareToken string
+	Endpoints      []OllamaEndpointConfig
+	HealthCheck    *HealthCheckConfig
+}
+
+type OllamaEndpointConfig struct {
+	Name           string
+	BaseURL        string
+	ZrokShareToken string
+}
+
+type HealthCheckConfig struct {
+	IntervalSeconds int
+	TimeoutSeconds  int
+}
+
+type MetricsConfig struct {
+	Enabled bool
+	Listen  string // address for metrics server (default: ":9090")
 }
 
 func LoadConfig(path string) (*Config, error) {

@@ -23,6 +23,23 @@ providers:
     base_url: "http://localhost:11434"
     # zrok_share_token: "abc123"  # optional: connect via zrok share
 
+    # multi-endpoint mode (replaces base_url/zrok_share_token above):
+    # endpoints:
+    #   - name: gpu-box-1
+    #     base_url: "http://10.0.0.1:11434"
+    #   - name: gpu-box-2
+    #     base_url: "http://10.0.0.2:11434"
+    #   - name: remote
+    #     zrok_share_token: "abc123"
+    # health_check:
+    #   interval_seconds: 30
+    #   timeout_seconds: 5
+
+# metrics configuration
+# metrics:
+#   enabled: true
+#   listen: ":9090"  # optional: separate metrics server address
+
 # semantic routing configuration
 # when enabled, the model field becomes optional in requests.
 # requests are routed through a three-layer cascade: heuristics -> embeddings -> classifier.

@@ -9,6 +9,8 @@ An OpenAI-compatible API proxy that routes requests to OpenAI, Anthropic, or Oll
 - **Semantic routing**: Optional three-layer cascade (heuristics, embeddings, LLM classifier) to automatically select the best model when `model` is omitted
 - **Anthropic translation**: Transparently converts OpenAI format to/from Anthropic's Messages API
 - **Streaming support**: Server-Sent Events (SSE) streaming for all providers
+- **Ollama multi-endpoint**: Round-robin load distribution and automatic failover across multiple Ollama instances
+- **OpenTelemetry metrics**: Prometheus-exported metrics for requests, latency, tokens, and endpoint health
 - **zrok integration**: Expose the gateway via zrok private or public shares
 - **Zero-trust backends**: Connect to any provider via zrok shares (no exposed ports)
 
@@ -74,6 +76,27 @@ Requests are routed based on model name prefix:
 | `claude-*` | Anthropic |
 | Everything else | Ollama |
 
+### Ollama Multi-Endpoint
+
+Distribute Ollama requests across multiple instances for load balancing and resilience. When `endpoints` is present, the gateway uses round-robin selection with automatic failover:
+
+```yaml
+providers:
+  ollama:
+    endpoints:
+      - name: gpu-box-1
+        base_url: "http://10.0.0.1:11434"
+      - name: gpu-box-2
+        base_url: "http://10.0.0.2:11434"
+      - name: remote
+        zrok_share_token: "abc123"
+    health_check:
+      interval_seconds: 30   # default: 30
+      timeout_seconds: 5     # default: 5
+```
+
+Each endpoint can use direct HTTP or a zrok share. A background goroutine pings each endpoint's `GET /api/tags` at the configured interval and marks unhealthy endpoints for automatic skip. Network errors during requests also trigger immediate passive failover. All gateway features that use the Ollama provider (chat completions, embeddings, classifier) distribute requests across the endpoint group.
+
 ## API Endpoints
 
 ### POST /v1/chat/completions
@@ -82,7 +105,15 @@ OpenAI-compatible chat completions endpoint. Supports both streaming (`stream: t
 
 ### GET /v1/models
 
-Returns available models from all configured providers. When semantic routing is enabled, includes an `auto` virtual model that triggers automatic model selection.
+Returns available models from all configured providers. When semantic routing is enabled, includes an `auto` virtual model that triggers automatic model selection. With multi-endpoint Ollama, returns the deduplicated union of models from all healthy endpoints.
+
+### GET /health
+
+Returns `{"status":"ok"}` with HTTP 200. Use for liveness checks.
+
+### GET /metrics
+
+Prometheus metrics endpoint (when `metrics.enabled: true`). Exposes request counts, duration histograms, token counters, routing decisions, provider errors, in-flight gauges, and endpoint health.
 
 ## Configuration
 
@@ -111,6 +142,21 @@ providers:
   ollama:
     base_url: "http://localhost:11434"
     zrok_share_token: ""     # optional: connect via zrok share
+
+    # or use multi-endpoint mode for round-robin + failover:
+    # endpoints:
+    #   - name: gpu-box-1
+    #     base_url: "http://10.0.0.1:11434"
+    #   - name: gpu-box-2
+    #     base_url: "http://10.0.0.2:11434"
+    #   - name: remote
+    #     zrok_share_token: "abc123"
+    # health_check:
+    #   interval_seconds: 30
+    #   timeout_seconds: 5
+
+metrics:
+  enabled: false
 ```
 
 ### Environment Variables
@@ -243,6 +289,28 @@ curl http://localhost:8080/v1/chat/completions \
 Point your client at `http://localhost:8080/v1` and select `auto` from the model list. The gateway will route each request through the semantic routing cascade.
 
 The gateway logs each routing decision with the method used, confidence score, latency, and cascade trace.
+
+## Metrics
+
+Enable OpenTelemetry metrics with a Prometheus exporter:
+
+```yaml
+metrics:
+  enabled: true
+```
+
+When enabled, the gateway serves Prometheus metrics at `GET /metrics` on the same listen address. Available metrics:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `llm_gateway.requests` | Counter | Total requests (by provider, model, streaming) |
+| `llm_gateway.request.duration` | Histogram | Request duration in seconds (by provider, model) |
+| `llm_gateway.tokens.prompt` | Counter | Total prompt tokens (by provider, model) |
+| `llm_gateway.tokens.completion` | Counter | Total completion tokens (by provider, model) |
+| `llm_gateway.routing.decisions` | Counter | Semantic routing decisions (by method) |
+| `llm_gateway.provider.errors` | Counter | Provider errors (by error_type) |
+| `llm_gateway.requests.inflight` | Gauge | Currently in-flight requests |
+| `llm_gateway.endpoint.healthy` | Gauge | Endpoint health status |
 
 ## CLI Reference
 

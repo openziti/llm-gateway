@@ -5,16 +5,23 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/michaelquigley/df/dl"
 	"github.com/openziti/llm-gateway/providers"
 	"github.com/openziti/llm-gateway/routing"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 func (g *Gateway) newHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", g.handleModels)
 	mux.HandleFunc("POST /v1/chat/completions", g.handleChatCompletions)
+	mux.HandleFunc("GET /health", g.handleHealth)
+	if g.metricsHandler != nil {
+		mux.Handle("GET /metrics", g.metricsHandler)
+	}
 	return mux
 }
 
@@ -48,8 +55,20 @@ func (g *Gateway) handleModels(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func (g *Gateway) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok"}`))
+}
+
 func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	start := time.Now()
+
+	if g.meters != nil {
+		g.meters.inflight.Add(ctx, 1)
+		defer g.meters.inflight.Add(ctx, -1)
+	}
 
 	var req providers.ChatCompletionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -78,6 +97,9 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			req.Model = decision.Model
 			dl.Infof("semantic routing: method=%s route='%s' model='%s' confidence=%.2f latency=%dms cascade=[%s]",
 				decision.Method, decision.Route, decision.Model, decision.Confidence, decision.LatencyMs, strings.Join(decision.Cascade, ","))
+			if g.meters != nil {
+				g.meters.routingDecisions.Add(ctx, 1, metric.WithAttributes(attribute.String("method", string(decision.Method))))
+			}
 		}
 	}
 
@@ -96,10 +118,27 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 	dl.Infof("routing model '%s' to %s", req.Model, providerType)
 
+	streaming := "false"
+	if req.Stream {
+		streaming = "true"
+	}
+
 	if req.Stream {
 		g.handleStreamingCompletion(ctx, w, provider, &req)
 	} else {
 		g.handleNonStreamingCompletion(ctx, w, provider, &req)
+	}
+
+	if g.meters != nil {
+		g.meters.requests.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("provider", string(providerType)),
+			attribute.String("model", req.Model),
+			attribute.String("streaming", streaming),
+		))
+		g.meters.requestDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
+			attribute.String("provider", string(providerType)),
+			attribute.String("model", req.Model),
+		))
 	}
 }
 
@@ -108,6 +147,15 @@ func (g *Gateway) handleNonStreamingCompletion(ctx context.Context, w http.Respo
 	if err != nil {
 		g.writeProviderError(w, err)
 		return
+	}
+
+	if g.meters != nil && resp.Usage != nil {
+		tokenAttrs := metric.WithAttributes(
+			attribute.String("provider", resp.Model),
+			attribute.String("model", req.Model),
+		)
+		g.meters.tokensPrompt.Add(ctx, int64(resp.Usage.PromptTokens), tokenAttrs)
+		g.meters.tokensCompletion.Add(ctx, int64(resp.Usage.CompletionTokens), tokenAttrs)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -191,11 +239,21 @@ func extractMessageContent(content any) string {
 
 func (g *Gateway) writeProviderError(w http.ResponseWriter, err error) {
 	if apiErr, ok := err.(*providers.APIError); ok {
+		if g.meters != nil {
+			g.meters.providerErrors.Add(context.Background(), 1,
+				metric.WithAttributes(attribute.String("error_type", apiErr.Type)),
+			)
+		}
 		statusCode := providers.StatusCodeForError(apiErr.Type)
 		providers.WriteError(w, apiErr, statusCode)
 		return
 	}
 
+	if g.meters != nil {
+		g.meters.providerErrors.Add(context.Background(), 1,
+			metric.WithAttributes(attribute.String("error_type", "unknown")),
+		)
+	}
 	dl.Errorf("provider error: %v", err)
 	apiErr := providers.ErrProviderError(err.Error())
 	providers.WriteError(w, apiErr, http.StatusInternalServerError)
