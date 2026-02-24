@@ -110,6 +110,7 @@ providers:
     endpoints:
       - name: gpu-box-1
         base_url: "http://10.0.0.1:11434"
+        weight: 3             # optional: receives ~3x traffic (default: 1)
       - name: gpu-box-2
         base_url: "http://10.0.0.2:11434"
       - name: remote

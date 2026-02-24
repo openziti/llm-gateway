@@ -1,6 +1,6 @@
 # Multi-Endpoint Ollama
 
-When you have multiple Ollama instances (e.g., several GPU machines), the gateway can distribute requests across them with round-robin load balancing, health checking, and automatic failover.
+When you have multiple Ollama instances (e.g., several GPU machines), the gateway can distribute requests across them with weighted round-robin load balancing, health checking, and automatic failover.
 
 ## Configuration
 
@@ -12,6 +12,7 @@ providers:
     endpoints:
       - name: gpu-box-1
         base_url: "http://10.0.0.1:11434"
+        weight: 3
       - name: gpu-box-2
         base_url: "http://10.0.0.2:11434"
       - name: remote
@@ -23,6 +24,8 @@ providers:
 
 Each endpoint has a `name` (used in logs and metrics) and either a `base_url` for direct HTTP or a `zrok_share_token` for overlay access. You can mix both in the same config.
 
+The optional `weight` field (default: 1) controls the proportion of traffic each endpoint receives. An endpoint with `weight: 3` gets roughly 3x the requests of an endpoint with `weight: 1`.
+
 ### Health Check Settings
 
 | Key | Default | Description |
@@ -32,9 +35,9 @@ Each endpoint has a `name` (used in logs and metrics) and either a `base_url` fo
 
 ## How It Works
 
-### Round-Robin Selection
+### Weighted Round-Robin Selection
 
-Requests are distributed across healthy endpoints using a round-robin counter. Each call to the provider advances the counter and picks the next healthy endpoint in order.
+Requests are distributed across healthy endpoints using a weighted round-robin counter. Each endpoint appears in the internal rotation proportionally to its weight -- an endpoint with `weight: 3` appears three times for every one appearance of a `weight: 1` endpoint. Each call to the provider advances the counter and picks the next healthy endpoint in order.
 
 If all endpoints are unhealthy, the first endpoint is used as a best-effort fallback.
 
@@ -94,11 +97,13 @@ providers:
         base_url: "http://localhost:11434"
       - name: local-4090
         base_url: "http://192.168.1.50:11434"
+        weight: 2
       - name: cloud-a100
         zrok_share_token: "a100-share"
+        weight: 3
     health_check:
       interval_seconds: 15
       timeout_seconds: 3
 ```
 
-Requests rotate across all three. If the cloud machine goes offline, health checks detect the failure and requests are distributed across the two local machines until it recovers.
+With these weights, out of every 6 requests roughly 1 goes to the 3090, 2 to the 4090, and 3 to the A100. If the cloud machine goes offline, health checks detect the failure and requests are distributed across the two local machines until it recovers.

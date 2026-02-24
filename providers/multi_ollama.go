@@ -38,36 +38,51 @@ type EndpointOption struct {
 	Name       string
 	BaseURL    string
 	HTTPClient *http.Client // nil for default
+	Weight     int          // round-robin weight (default: 1)
 }
 
 // MultiOllama distributes requests across multiple Ollama endpoints
-// using round-robin with health-check-based failover.
+// using weighted round-robin with health-check-based failover.
 type MultiOllama struct {
-	endpoints []*endpoint
-	counter   atomic.Uint64
-	cancel    context.CancelFunc
-	done      chan struct{}
+	endpoints       []*endpoint // weighted: endpoint with weight N appears N times
+	uniqueEndpoints []*endpoint // deduplicated: one entry per physical endpoint
+	counter         atomic.Uint64
+	cancel          context.CancelFunc
+	done            chan struct{}
 }
 
 // NewMultiOllama creates a MultiOllama from the given endpoint options.
 func NewMultiOllama(opts []EndpointOption) *MultiOllama {
-	endpoints := make([]*endpoint, len(opts))
-	for i, opt := range opts {
+	var uniqueEndpoints []*endpoint
+	var endpoints []*endpoint
+
+	for _, opt := range opts {
 		var o *Ollama
 		if opt.HTTPClient != nil {
 			o = NewOllamaWithClient(opt.BaseURL, opt.HTTPClient)
 		} else {
 			o = NewOllama(opt.BaseURL)
 		}
-		endpoints[i] = &endpoint{
+		ep := &endpoint{
 			name:    opt.Name,
 			ollama:  o,
 			healthy: true,
 		}
+		uniqueEndpoints = append(uniqueEndpoints, ep)
+
+		weight := opt.Weight
+		if weight <= 0 {
+			weight = 1
+		}
+		for j := 0; j < weight; j++ {
+			endpoints = append(endpoints, ep)
+		}
 	}
+
 	return &MultiOllama{
-		endpoints: endpoints,
-		done:      make(chan struct{}),
+		endpoints:       endpoints,
+		uniqueEndpoints: uniqueEndpoints,
+		done:            make(chan struct{}),
 	}
 }
 
@@ -83,7 +98,7 @@ func (m *MultiOllama) next() *endpoint {
 		}
 	}
 	// all unhealthy — best-effort with the first endpoint
-	return m.endpoints[0]
+	return m.uniqueEndpoints[0]
 }
 
 // isNetworkError returns true for errors that indicate the endpoint is down,
@@ -105,7 +120,7 @@ func isNetworkError(err error) bool {
 
 func (m *MultiOllama) ChatCompletion(ctx context.Context, req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
 	var lastErr error
-	for i := 0; i < len(m.endpoints); i++ {
+	for i := 0; i < len(m.uniqueEndpoints); i++ {
 		ep := m.next()
 		resp, err := ep.ollama.ChatCompletion(ctx, req)
 		if err == nil {
@@ -125,7 +140,7 @@ func (m *MultiOllama) ChatCompletion(ctx context.Context, req *ChatCompletionReq
 
 func (m *MultiOllama) ChatCompletionStream(ctx context.Context, req *ChatCompletionRequest) (<-chan StreamEvent, error) {
 	var lastErr error
-	for i := 0; i < len(m.endpoints); i++ {
+	for i := 0; i < len(m.uniqueEndpoints); i++ {
 		ep := m.next()
 		events, err := ep.ollama.ChatCompletionStream(ctx, req)
 		if err == nil {
@@ -148,7 +163,7 @@ func (m *MultiOllama) ListModels(ctx context.Context) ([]Model, error) {
 	var models []Model
 	var lastErr error
 
-	for _, ep := range m.endpoints {
+	for _, ep := range m.uniqueEndpoints {
 		if !ep.isHealthy() {
 			continue
 		}
@@ -197,7 +212,7 @@ func (m *MultiOllama) StartHealthChecks(interval, timeout time.Duration) {
 }
 
 func (m *MultiOllama) checkAll(timeout time.Duration) {
-	for _, ep := range m.endpoints {
+	for _, ep := range m.uniqueEndpoints {
 		wasHealthy := ep.isHealthy()
 		healthy := m.checkEndpoint(ep, timeout)
 		ep.setHealthy(healthy)
@@ -229,7 +244,7 @@ func (m *MultiOllama) checkEndpoint(ep *endpoint, timeout time.Duration) bool {
 
 // PrimaryBaseURL returns the first endpoint's base URL (for embedding provider).
 func (m *MultiOllama) PrimaryBaseURL() string {
-	return m.endpoints[0].ollama.baseURL
+	return m.uniqueEndpoints[0].ollama.baseURL
 }
 
 // RoundRobinClient returns an HTTP client that distributes requests across

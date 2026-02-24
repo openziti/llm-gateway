@@ -162,6 +162,7 @@ func (g *Gateway) initOllamaMulti() error {
 		opt := providers.EndpointOption{
 			Name:    ep.Name,
 			BaseURL: ep.BaseURL,
+			Weight:  ep.Weight,
 		}
 		if ep.ZrokShareToken != "" {
 			access, err := NewAccess(ep.ZrokShareToken)

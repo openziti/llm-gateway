@@ -59,6 +59,7 @@ type OllamaEndpointConfig struct {
 	Name           string
 	BaseURL        string
 	ZrokShareToken string
+	Weight         int
 }
 
 type HealthCheckConfig struct {
