@@ -140,6 +140,8 @@ Each rule has a `match` block with one or more conditions. All specified conditi
 
 **`keywords`** -- a list of keywords matched against user messages (not system messages). Keywords are matched with word boundaries and are case-insensitive. Any single keyword matching is sufficient. Keywords containing non-word characters (like `c++`) are handled correctly -- word boundaries are only applied at edges that touch a letter, digit, or underscore.
 
+**`exclude`** -- a list of phrases that suppress a keyword match. Uses the same word-boundary, case-insensitive matching as keywords. If any exclusion phrase is found in user messages, the rule's keywords are not evaluated and the rule does not match. This prevents false positives from boilerplate text. For example, Open WebUI meta-prompts contain "markdown code fences" which would trigger a bare `code` keyword -- adding `exclude: ["code fences"]` suppresses that.
+
 **`system_prompt_contains`** -- a substring matched against the content of any system message. Case-insensitive.
 
 **`max_tokens_lt`** -- matches if the request's `max_tokens` is set and is strictly less than the given value. Does not match if `max_tokens` is absent.
@@ -160,6 +162,19 @@ When a rule specifies multiple conditions, all must match:
 ```
 
 This matches only if a user message contains "code" **and** the request has tools.
+
+### Exclusions
+
+When using broad keywords, you may encounter false positives from boilerplate text injected by clients. The `exclude` field lets you suppress a keyword match when specific phrases are present:
+
+```yaml
+- match:
+    keywords: ["code", "debug", "refactor"]
+    exclude: ["code fences", "code block", "### Task"]
+  route: coding
+```
+
+Exclusions are checked first. If any exclusion phrase matches, the rule is skipped entirely -- keywords are not evaluated. This is useful when routing requests from clients like Open WebUI that send follow-up meta-prompts (title generation, tagging) containing boilerplate like "without any markdown code fences."
 
 ## Layer 2: Embeddings
 
@@ -338,6 +353,7 @@ routing:
     rules:
       - match:
           keywords: [...]               # list of keywords (OR logic within, AND with other conditions)
+          exclude: [...]                # phrases that suppress a keyword match (optional)
           system_prompt_contains: "..."  # substring match on system messages
           max_tokens_lt: 100             # max_tokens strictly less than value
           message_length_lt: 200         # total message chars strictly less than value

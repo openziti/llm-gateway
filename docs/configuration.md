@@ -55,6 +55,10 @@ metrics:                  # optional: OpenTelemetry metrics
   enabled: false
   listen: ":9090"         # separate metrics server address
 
+tracing:                  # optional: request body logging
+  enabled: false
+  max_content_length: 200 # max characters per message (default: 200)
+
 routing:                  # optional: semantic routing
   ...                     # see docs/semantic-routing.md
 ```
@@ -129,6 +133,18 @@ metrics:
 
 When enabled, the Prometheus metrics endpoint is served at `GET /metrics` on the main listener. See [docs/metrics.md](metrics.md) for the full list of instruments.
 
+## Tracing Configuration
+
+```yaml
+tracing:
+  enabled: true             # enable request body logging
+  max_content_length: 200   # max characters per message in log output (default: 200)
+```
+
+When enabled, each chat completion request is logged with a structured summary showing the requested model, message count, streaming flag, tool count, and each message's role and truncated content. Newlines in message content are escaped to keep each log entry on a single line.
+
+This is useful for debugging semantic routing decisions -- it shows exactly what the client sent, making it easy to identify why a heuristic rule matched or why a request was routed unexpectedly.
+
 ## Startup Sequence
 
 1. Load and parse the YAML config file
@@ -164,6 +180,10 @@ providers:
 metrics:
   enabled: true
 
+tracing:
+  enabled: true
+  max_content_length: 300
+
 routing:
   default_route: general
 
@@ -173,6 +193,10 @@ routing:
       - match:
           keywords: ["translate"]
         route: general
+      - match:
+          keywords: ["code", "debug", "refactor"]
+          exclude: ["code fences", "code block"]
+        route: coding
 
   semantic:
     enabled: true
