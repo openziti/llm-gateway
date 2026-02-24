@@ -35,6 +35,20 @@ providers:
     #   interval_seconds: 30
     #   timeout_seconds: 5
 
+# api key authentication
+# when enabled, clients must send an Authorization: Bearer <key> header.
+# /health and /metrics are exempt from authentication.
+# api_keys:
+#   enabled: true
+#   keys:
+#     - name: alice
+#       key: "sk-gw-..."                       # generate with: llm-gateway genkey
+#       allowed_models: ["claude-*", "gpt-*"]   # optional: glob patterns (default: all)
+#       allowed_routes: ["coding", "general"]   # optional: semantic route names (default: all)
+#     - name: ci-pipeline
+#       key: "${CI_GATEWAY_KEY}"                # supports env var substitution
+#       allowed_models: ["*"]
+
 # metrics configuration
 # metrics:
 #   enabled: true

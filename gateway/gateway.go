@@ -20,6 +20,7 @@ type Gateway struct {
 	providers        map[providers.ProviderType]providers.Provider
 	router           *providers.Router
 	semanticRouter   *routing.SemanticRouter
+	keyStore         *KeyStore
 	share            *Share
 	accesses         []*Access
 	ollamaHTTPClient *http.Client
@@ -52,6 +53,11 @@ func New(cfg *Config) (_ *Gateway, err error) {
 		g.meters = m
 		g.metricsHandler = handler
 		dl.Info("initialized opentelemetry metrics")
+	}
+
+	if cfg.APIKeys != nil && cfg.APIKeys.Enabled && len(cfg.APIKeys.Keys) > 0 {
+		g.keyStore = NewKeyStore(cfg.APIKeys.Keys)
+		dl.Infof("loaded %d API key(s)", len(cfg.APIKeys.Keys))
 	}
 
 	if cfg.Routing != nil {

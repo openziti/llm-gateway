@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -21,6 +22,9 @@ func (g *Gateway) newHandler() http.Handler {
 	mux.HandleFunc("GET /health", g.handleHealth)
 	if g.metricsHandler != nil {
 		mux.Handle("GET /metrics", g.metricsHandler)
+	}
+	if g.keyStore != nil {
+		return g.keyStore.Middleware(mux)
 	}
 	return mux
 }
@@ -86,6 +90,8 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		req.Model = ""
 	}
 
+	keyEntry := KeyFromContext(ctx)
+
 	// semantic routing: select model if not explicitly provided (or override if configured)
 	if g.semanticRouter != nil && g.semanticRouter.Enabled() {
 		info := buildRequestInfo(&req)
@@ -94,9 +100,21 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			dl.Errorf("semantic routing error: %v", err)
 			// fall through to normal routing
 		} else if decision.Model != "" {
+			if keyEntry != nil && !CheckRoute(keyEntry, decision.Route) {
+				dl.Infof("key '%s' denied access to route '%s'", keyEntry.Name, decision.Route)
+				providers.WriteError(w,
+					providers.NewAPIError(fmt.Sprintf("route '%s' is not allowed for this API key", decision.Route), providers.ErrorTypePermission),
+					http.StatusForbidden,
+				)
+				return
+			}
 			req.Model = decision.Model
-			dl.Infof("semantic routing: method=%s route='%s' model='%s' confidence=%.2f latency=%dms cascade=[%s]",
-				decision.Method, decision.Route, decision.Model, decision.Confidence, decision.LatencyMs, strings.Join(decision.Cascade, ","))
+			keyName := ""
+			if keyEntry != nil {
+				keyName = keyEntry.Name
+			}
+			dl.Infof("semantic routing: key='%s' method=%s route='%s' model='%s' confidence=%.2f latency=%dms cascade=[%s]",
+				keyName, decision.Method, decision.Route, decision.Model, decision.Confidence, decision.LatencyMs, strings.Join(decision.Cascade, ","))
 			if g.meters != nil {
 				g.meters.routingDecisions.Add(ctx, 1, metric.WithAttributes(attribute.String("method", string(decision.Method))))
 			}
@@ -105,6 +123,15 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 	if req.Model == "" {
 		providers.WriteError(w, providers.ErrModelRequired, http.StatusBadRequest)
+		return
+	}
+
+	if keyEntry != nil && !CheckModel(keyEntry, req.Model) {
+		dl.Infof("key '%s' denied access to model '%s'", keyEntry.Name, req.Model)
+		providers.WriteError(w,
+			providers.NewAPIError(fmt.Sprintf("model '%s' is not allowed for this API key", req.Model), providers.ErrorTypePermission),
+			http.StatusForbidden,
+		)
 		return
 	}
 
@@ -130,14 +157,20 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if g.meters != nil {
+		keyName := ""
+		if keyEntry != nil {
+			keyName = keyEntry.Name
+		}
 		g.meters.requests.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("provider", string(providerType)),
 			attribute.String("model", req.Model),
 			attribute.String("streaming", streaming),
+			attribute.String("key", keyName),
 		))
 		g.meters.requestDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
 			attribute.String("provider", string(providerType)),
 			attribute.String("model", req.Model),
+			attribute.String("key", keyName),
 		))
 	}
 }

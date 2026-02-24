@@ -11,6 +11,7 @@ type Config struct {
 	Providers *ProvidersConfig
 	Routing   *routing.RoutingConfig
 	Metrics   *MetricsConfig
+	APIKeys   *APIKeysConfig
 }
 
 type ZrokConfig struct {
@@ -62,6 +63,18 @@ type HealthCheckConfig struct {
 type MetricsConfig struct {
 	Enabled bool
 	Listen  string // address for metrics server (default: ":9090")
+}
+
+type APIKeysConfig struct {
+	Enabled bool
+	Keys    []APIKeyEntry
+}
+
+type APIKeyEntry struct {
+	Name          string
+	Key           string
+	AllowedModels []string
+	AllowedRoutes []string
 }
 
 func LoadConfig(path string) (*Config, error) {

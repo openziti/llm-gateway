@@ -22,4 +22,5 @@ func main() {
 
 func init() {
 	rootCmd.AddCommand(newRunCommand().cmd)
+	rootCmd.AddCommand(newGenkeyCommand().cmd)
 }

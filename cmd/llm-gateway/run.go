@@ -7,33 +7,33 @@ import (
 )
 
 type runCommand struct {
-	cmd        *cobra.Command
-	configPath string
-	address    string
-	zrok       bool
-	zrokMode   string
+	cmd      *cobra.Command
+	address  string
+	zrok     bool
+	zrokMode string
 }
 
 func newRunCommand() *runCommand {
 	rc := &runCommand{}
 	rc.cmd = &cobra.Command{
-		Use:   "run",
+		Use:   "run <configPath>",
 		Short: "Run the llm-gateway server",
+		Args:  cobra.ExactArgs(1),
 		RunE:  rc.run,
 	}
-	rc.cmd.Flags().StringVarP(&rc.configPath, "config", "c", "etc/config.yaml", "path to config file")
 	rc.cmd.Flags().StringVar(&rc.address, "address", "", "listen address (overrides config)")
 	rc.cmd.Flags().BoolVar(&rc.zrok, "zrok", false, "enable zrok sharing (overrides config)")
 	rc.cmd.Flags().StringVar(&rc.zrokMode, "zrok-mode", "", "zrok share mode: public, private (overrides config)")
 	return rc
 }
 
-func (rc *runCommand) run(_ *cobra.Command, _ []string) error {
-	cfg, err := gateway.LoadConfig(rc.configPath)
+func (rc *runCommand) run(_ *cobra.Command, args []string) error {
+	configPath := args[0]
+	cfg, err := gateway.LoadConfig(configPath)
 	if err != nil {
 		return err
 	}
-	dl.Infof("loaded config '%s'", rc.configPath)
+	dl.Infof("loaded config '%s'", configPath)
 
 	// apply CLI overrides
 	if rc.address != "" {
