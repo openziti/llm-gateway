@@ -290,6 +290,59 @@ func TestHeuristicKeywordsIgnoreSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestHeuristicExclude(t *testing.T) {
+	m := NewHeuristicMatcher([]HeuristicRule{
+		{
+			Match: MatchCondition{
+				Keywords: []string{"code"},
+				Exclude:  []string{"code fences", "code block"},
+			},
+			Route: "coding",
+		},
+	})
+
+	// "code" present but "code fences" triggers exclusion
+	info := &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "without any markdown code fences, generate a title"}},
+	}
+	if got := m.Match(info); got != "" {
+		t.Errorf("exclude should suppress match, got %q", got)
+	}
+
+	// "code" present, no exclusion phrase
+	info = &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "write some code for me"}},
+	}
+	if got := m.Match(info); got != "coding" {
+		t.Errorf("no exclusion present = %q, want 'coding'", got)
+	}
+
+	// "code block" exclusion
+	info = &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "do not use a code block in your response"}},
+	}
+	if got := m.Match(info); got != "" {
+		t.Errorf("code block exclusion should suppress match, got %q", got)
+	}
+}
+
+func TestHeuristicExcludeEmpty(t *testing.T) {
+	// no exclusions configured, keywords work normally
+	m := NewHeuristicMatcher([]HeuristicRule{
+		{
+			Match: MatchCondition{Keywords: []string{"code"}},
+			Route: "coding",
+		},
+	})
+
+	info := &RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "write code for me"}},
+	}
+	if got := m.Match(info); got != "coding" {
+		t.Errorf("empty exclude list = %q, want 'coding'", got)
+	}
+}
+
 func TestHeuristicSpecialCharKeyword(t *testing.T) {
 	m := NewHeuristicMatcher([]HeuristicRule{
 		{

@@ -49,6 +49,13 @@ providers:
 #       key: "${CI_GATEWAY_KEY}"                # supports env var substitution
 #       allowed_models: ["*"]
 
+# request tracing
+# when enabled, logs a structured summary of each chat completion request
+# including message roles and (truncated) content, useful for debugging routing.
+# tracing:
+#   enabled: true
+#   max_content_length: 200  # max characters per message (default: 200)
+
 # metrics configuration
 # metrics:
 #   enabled: true
@@ -67,6 +74,10 @@ providers:
 #       - match:
 #           keywords: ["translate", "translation"]
 #         route: fast
+#       - match:
+#           keywords: ["code", "debug", "refactor"]
+#           exclude: ["code fences", "code block"]  # suppress false positives
+#         route: coding
 #       - match:
 #           has_tools: true
 #         route: tools

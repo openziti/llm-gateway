@@ -85,6 +85,10 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if g.cfg.Tracing != nil && g.cfg.Tracing.Enabled {
+		g.logRequest(&req)
+	}
+
 	// clear virtual model name to trigger semantic routing
 	if req.Model == "auto" {
 		req.Model = ""
@@ -267,6 +271,24 @@ func extractMessageContent(content any) string {
 		return strings.Join(parts, "\n")
 	default:
 		return ""
+	}
+}
+
+func (g *Gateway) logRequest(req *providers.ChatCompletionRequest) {
+	maxLen := 200
+	if g.cfg.Tracing.MaxContentLength > 0 {
+		maxLen = g.cfg.Tracing.MaxContentLength
+	}
+
+	dl.Infof("trace: model='%s' messages=%d stream=%v tools=%d", req.Model, len(req.Messages), req.Stream, len(req.Tools))
+	for i, msg := range req.Messages {
+		content := extractMessageContent(msg.Content)
+		if len(content) > maxLen {
+			content = content[:maxLen] + "..."
+		}
+		// collapse newlines for single-line log output
+		content = strings.ReplaceAll(content, "\n", "\\n")
+		dl.Infof("trace:   [%d] role='%s' content='%s'", i, msg.Role, content)
 	}
 }
 

@@ -12,6 +12,12 @@ type Config struct {
 	Routing   *routing.RoutingConfig
 	Metrics   *MetricsConfig
 	APIKeys   *APIKeysConfig
+	Tracing   *TracingConfig
+}
+
+type TracingConfig struct {
+	Enabled          bool
+	MaxContentLength int // max characters per message content (default: 200)
 }
 
 type ZrokConfig struct {

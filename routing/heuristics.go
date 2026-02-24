@@ -5,10 +5,11 @@ import (
 	"strings"
 )
 
-// compiledRule pairs a HeuristicRule with precompiled keyword patterns.
+// compiledRule pairs a HeuristicRule with precompiled keyword and exclusion patterns.
 type compiledRule struct {
-	rule     HeuristicRule
-	patterns []*regexp.Regexp
+	rule       HeuristicRule
+	patterns   []*regexp.Regexp
+	exclusions []*regexp.Regexp
 }
 
 // HeuristicMatcher evaluates heuristic rules against a request.
@@ -25,7 +26,11 @@ func NewHeuristicMatcher(rules []HeuristicRule) *HeuristicMatcher {
 		for j, kw := range rule.Match.Keywords {
 			patterns[j] = regexp.MustCompile(keywordPattern(kw))
 		}
-		compiled[i] = compiledRule{rule: rule, patterns: patterns}
+		exclusions := make([]*regexp.Regexp, len(rule.Match.Exclude))
+		for j, ex := range rule.Match.Exclude {
+			exclusions[j] = regexp.MustCompile(keywordPattern(ex))
+		}
+		compiled[i] = compiledRule{rule: rule, patterns: patterns, exclusions: exclusions}
 	}
 	return &HeuristicMatcher{compiled: compiled}
 }
@@ -44,7 +49,7 @@ func (h *HeuristicMatcher) matchRule(cr *compiledRule, info *RequestInfo) bool {
 	cond := &cr.rule.Match
 
 	if len(cr.patterns) > 0 {
-		if !h.matchKeywords(cr.patterns, info) {
+		if !h.matchKeywords(cr.patterns, cr.exclusions, info) {
 			return false
 		}
 	}
@@ -100,7 +105,7 @@ func isWordChar(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
 }
 
-func (h *HeuristicMatcher) matchKeywords(patterns []*regexp.Regexp, info *RequestInfo) bool {
+func (h *HeuristicMatcher) matchKeywords(patterns, exclusions []*regexp.Regexp, info *RequestInfo) bool {
 	// build combined text from user messages only; system prompts are matched
 	// separately via the system_prompt_contains condition
 	var combined strings.Builder
@@ -111,6 +116,13 @@ func (h *HeuristicMatcher) matchKeywords(patterns []*regexp.Regexp, info *Reques
 		}
 	}
 	text := combined.String()
+
+	// check exclusions first; if any exclusion phrase is present, skip keywords
+	for _, ex := range exclusions {
+		if ex.MatchString(text) {
+			return false
+		}
+	}
 
 	for _, p := range patterns {
 		if p.MatchString(text) {

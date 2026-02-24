@@ -35,6 +35,7 @@ type HeuristicRule struct {
 // all non-zero fields must match (AND logic).
 type MatchCondition struct {
 	Keywords             []string
+	Exclude              []string // phrases that suppress a keyword match
 	SystemPromptContains string
 	MaxTokensLt          *int
 	MessageLengthLt      *int
