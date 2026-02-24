@@ -220,6 +220,7 @@ func (m *MultiOllama) checkEndpoint(ep *endpoint, timeout time.Duration) bool {
 
 	resp, err := ep.ollama.client.Do(req)
 	if err != nil {
+		dl.Errorf("health check '%s' failed: %v", ep.name, err)
 		return false
 	}
 	resp.Body.Close()

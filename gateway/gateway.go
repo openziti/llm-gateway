@@ -177,8 +177,8 @@ func (g *Gateway) initOllamaMulti() error {
 	multi := providers.NewMultiOllama(opts)
 
 	// start health checks
-	interval := 30 * time.Second
-	timeout := 5 * time.Second
+	interval := 60 * time.Second
+	timeout := 30 * time.Second
 	if cfg.HealthCheck != nil {
 		if cfg.HealthCheck.IntervalSeconds > 0 {
 			interval = time.Duration(cfg.HealthCheck.IntervalSeconds) * time.Second
