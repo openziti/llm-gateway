@@ -15,10 +15,12 @@ import (
 
 // endpoint wraps a single Ollama instance with health state.
 type endpoint struct {
-	name    string
-	ollama  *Ollama
-	healthy bool
-	mu      sync.RWMutex
+	name              string
+	ollama            *Ollama
+	healthy           bool
+	consecutiveFails  int
+	nextCheck         time.Time
+	mu                sync.RWMutex
 }
 
 func (e *endpoint) isHealthy() bool {
@@ -47,6 +49,8 @@ type MultiOllama struct {
 	endpoints       []*endpoint // weighted: endpoint with weight N appears N times
 	uniqueEndpoints []*endpoint // deduplicated: one entry per physical endpoint
 	counter         atomic.Uint64
+	interval        time.Duration // base health check interval (for backoff calculation)
+	lastCheckAt     time.Time     // when checkAll last ran (detects VM sleep)
 	cancel          context.CancelFunc
 	done            chan struct{}
 }
@@ -188,9 +192,12 @@ func (m *MultiOllama) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 // StartHealthChecks begins periodic health checking of all endpoints.
+// Failing endpoints are rechecked with exponential backoff (up to 10x the
+// base interval) to avoid hammering infrastructure that is rate-limiting.
 func (m *MultiOllama) StartHealthChecks(interval, timeout time.Duration) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
+	m.interval = interval
 
 	go func() {
 		defer close(m.done)
@@ -211,11 +218,50 @@ func (m *MultiOllama) StartHealthChecks(interval, timeout time.Duration) {
 	}()
 }
 
+const (
+	maxBackoffMultiplier = 10          // cap backoff at 10x the base interval
+	staggerDelay         = 5 * time.Second // delay between endpoint checks after VM wake
+)
+
 func (m *MultiOllama) checkAll(timeout time.Duration) {
-	for _, ep := range m.uniqueEndpoints {
+	now := time.Now()
+
+	// detect VM sleep: if elapsed time since last check is more than 2x the
+	// interval, the system likely slept and all zrok sessions are stale.
+	// stagger the checks to avoid flooding the controller with re-auth requests.
+	stagger := !m.lastCheckAt.IsZero() && now.Sub(m.lastCheckAt) > m.interval*2
+	if stagger {
+		dl.Infof("detected long gap since last health check (%s), staggering endpoint checks", now.Sub(m.lastCheckAt).Round(time.Second))
+	}
+	m.lastCheckAt = now
+
+	for i, ep := range m.uniqueEndpoints {
+		if stagger && i > 0 {
+			time.Sleep(staggerDelay)
+		}
+
+		ep.mu.RLock()
+		skip := now.Before(ep.nextCheck)
+		ep.mu.RUnlock()
+		if skip {
+			continue
+		}
+
 		wasHealthy := ep.isHealthy()
 		healthy := m.checkEndpoint(ep, timeout)
 		ep.setHealthy(healthy)
+
+		ep.mu.Lock()
+		if healthy {
+			ep.consecutiveFails = 0
+			ep.nextCheck = time.Time{}
+		} else {
+			ep.consecutiveFails++
+			backoff := min(ep.consecutiveFails, maxBackoffMultiplier)
+			ep.nextCheck = now.Add(time.Duration(backoff) * m.interval)
+		}
+		ep.mu.Unlock()
+
 		if wasHealthy && !healthy {
 			dl.Infof("endpoint '%s' is now unhealthy", ep.name)
 		} else if !wasHealthy && healthy {
