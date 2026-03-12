@@ -25,7 +25,7 @@ zrok:
 Or via CLI flags:
 
 ```bash
-llm-gateway run --zrok --zrok-mode private
+llm-gateway run config.yaml --zrok --zrok-mode private
 ```
 
 The share token is logged at startup:

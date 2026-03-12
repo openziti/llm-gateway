@@ -14,6 +14,8 @@ An OpenAI-compatible API proxy that routes requests to OpenAI, Anthropic, or Oll
 - **zrok integration**: Expose the gateway via zrok private or public shares
 - **Zero-trust backends**: Connect to any provider via zrok shares (no exposed ports)
 
+> **New here?** See the [Getting Started guide](docs/getting-started.md) for a step-by-step walkthrough from zero to a working gateway.
+
 ## Installation
 
 ```bash
@@ -50,7 +52,7 @@ providers:
 ```bash
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
-llm-gateway run --config config.yaml
+llm-gateway run config.yaml
 ```
 
 3. Make requests using any OpenAI-compatible client:
@@ -86,6 +88,7 @@ providers:
     endpoints:
       - name: gpu-box-1
         base_url: "http://10.0.0.1:11434"
+        weight: 3
       - name: gpu-box-2
         base_url: "http://10.0.0.2:11434"
       - name: remote
@@ -95,7 +98,7 @@ providers:
       timeout_seconds: 5     # default: 5
 ```
 
-Each endpoint can use direct HTTP or a zrok share. A background goroutine pings each endpoint's `GET /api/tags` at the configured interval and marks unhealthy endpoints for automatic skip. Network errors during requests also trigger immediate passive failover. All gateway features that use the Ollama provider (chat completions, embeddings, classifier) distribute requests across the endpoint group.
+Each endpoint can use direct HTTP or a zrok share. The optional `weight` (default: 1) controls the proportion of traffic an endpoint receives — an endpoint with weight 3 gets ~3x the requests of weight 1. A background goroutine pings each endpoint's `GET /api/tags` at the configured interval and marks unhealthy endpoints for automatic skip. Network errors during requests also trigger immediate passive failover. All gateway features that use the Ollama provider (chat completions, embeddings, classifier) distribute requests across the endpoint group.
 
 ## API Endpoints
 
@@ -162,6 +165,26 @@ metrics:
 ### Environment Variables
 
 API keys support environment variable expansion using `${VAR}` syntax.
+
+## API Keys
+
+The gateway supports virtual API keys for client authentication. Generate a key and add it to the config:
+
+```bash
+llm-gateway genkey
+# sk-gw-a1b2c3d4e5f6...
+```
+
+```yaml
+api_keys:
+  enabled: true
+  keys:
+    - name: alice
+      key: "sk-gw-a1b2c3d4e5f6..."
+      allowed_models: ["*"]
+```
+
+Clients send the key via the `Authorization: Bearer <key>` header. The `/health` and `/metrics` endpoints remain unauthenticated. Keys can be restricted to specific models using glob patterns. See [docs/api-keys.md](docs/api-keys.md) for details.
 
 ## Semantic Routing
 
@@ -255,11 +278,12 @@ Each heuristic rule has a `match` block with one or more conditions. When multip
 
 | Condition | Description |
 |-----------|-------------|
-| `keywords` | Case-insensitive substring match against message content |
+| `keywords` | Case-insensitive word-boundary match against user message content |
 | `has_tools` | Matches if request includes/lacks tool definitions |
 | `system_prompt_contains` | Substring match on the system message |
 | `max_tokens_lt` | Matches if `max_tokens` is below a threshold |
 | `message_length_lt` | Matches if total message character length is below a threshold |
+| `exclude` | List of phrases that suppress keyword matches if found in user messages |
 
 ### Sending Requests Without a Model
 
@@ -312,14 +336,25 @@ When enabled, the gateway serves Prometheus metrics at `GET /metrics` on the sam
 | `llm_gateway.requests.inflight` | Gauge | Currently in-flight requests |
 | `llm_gateway.endpoint.healthy` | Gauge | Endpoint health status |
 
+## Tracing
+
+Enable request body logging for debugging routing decisions:
+
+```yaml
+tracing:
+  enabled: true
+  max_content_length: 200   # max characters per message in log output
+```
+
+Each chat completion request is logged with the model, message count, streaming flag, tool count, and each message's role and truncated content. See [docs/configuration.md](docs/configuration.md) for details.
+
 ## CLI Reference
 
 ```
-llm-gateway run [flags]
+llm-gateway run <configPath>
 
 Flags:
       --address string     listen address (overrides config)
-  -c, --config string      path to config file (default "etc/config.yaml")
       --zrok               enable zrok sharing (overrides config)
       --zrok-mode string   zrok share mode: public, private (overrides config)
 ```
@@ -340,7 +375,7 @@ zrok:
 Or via CLI:
 
 ```bash
-llm-gateway run --zrok --zrok-mode private
+llm-gateway run config.yaml --zrok --zrok-mode private
 ```
 
 The gateway will log the share token on startup. Clients connect using zrok access.
@@ -418,6 +453,18 @@ for chunk in stream:
     if chunk.choices[0].delta.content:
         print(chunk.choices[0].delta.content, end="")
 ```
+
+## Documentation
+
+- [Getting Started](docs/getting-started.md) -- step-by-step setup guide
+- [Configuration](docs/configuration.md) -- full config reference and CLI flags
+- [Providers](docs/providers.md) -- provider details, streaming, and error handling
+- [Semantic Routing](docs/semantic-routing.md) -- threshold tuning, comparison modes, and caching
+- [API Keys](docs/api-keys.md) -- per-key model and route restrictions
+- [Ollama Multi-Endpoint](docs/ollama-multi-endpoint.md) -- weighted load balancing and failover
+- [Metrics](docs/metrics.md) -- Prometheus instruments and example queries
+- [Streaming](docs/streaming.md) -- SSE streaming details
+- [zrok](docs/zrok.md) -- overlay networking for sharing and access
 
 ## License
 

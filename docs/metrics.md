@@ -22,6 +22,7 @@ All metric names are prefixed with `llm_gateway.`.
 | `provider` | `openai`, `anthropic`, `ollama` | which provider handled the request |
 | `model` | model name | the model used |
 | `streaming` | `true`, `false` | whether the request was streaming |
+| `key` | key name or empty | the API key name (when [virtual API keys](api-keys.md) are enabled) |
 
 **`llm_gateway.request.duration`** (histogram, seconds) -- end-to-end request duration including upstream provider latency.
 
@@ -29,6 +30,7 @@ All metric names are prefixed with `llm_gateway.`.
 |---|---|---|
 | `provider` | `openai`, `anthropic`, `ollama` | which provider handled the request |
 | `model` | model name | the model used |
+| `key` | key name or empty | the API key name (when [virtual API keys](api-keys.md) are enabled) |
 
 **`llm_gateway.requests.inflight`** (up-down counter) -- number of requests currently being processed. Incremented when a request enters the handler, decremented when it completes. Useful for understanding concurrency and detecting request pileups.
 

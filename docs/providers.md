@@ -13,7 +13,7 @@ GET  /health                 health check
 GET  /metrics                Prometheus metrics (when enabled)
 ```
 
-Requests and responses follow the [OpenAI API format](https://platform.openai.com/docs/api-reference/chat). The gateway does not require an API key from clients -- authentication is between the gateway and the upstream providers.
+Requests and responses follow the [OpenAI API format](https://platform.openai.com/docs/api-reference/chat). By default, the gateway does not require an API key from clients -- authentication is between the gateway and the upstream providers. Optionally, the gateway can enforce its own [virtual API keys](api-keys.md) for client authentication.
 
 ## Model Routing
 

@@ -52,6 +52,8 @@ An endpoint is marked **unhealthy** when:
 An endpoint is marked **healthy** when:
 - The health check returns 200
 
+Failing endpoints are rechecked with exponential backoff -- each consecutive failure increases the delay by one interval, up to 10x the base interval. This avoids hammering infrastructure that is down or rate-limiting. The backoff resets when the endpoint recovers.
+
 Health state transitions are logged:
 
 ```
@@ -60,6 +62,8 @@ endpoint 'gpu-box-1' is now healthy
 ```
 
 An initial health check runs immediately at startup, before any requests are served.
+
+If the system detects a long gap since the last health check (e.g., after a VM sleep/wake cycle), endpoint checks are staggered to avoid flooding the network with simultaneous reconnection attempts.
 
 ### Failover
 

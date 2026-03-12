@@ -5,12 +5,12 @@ The gateway is configured with a YAML file and optional CLI flags. CLI flags tak
 ## Running the Gateway
 
 ```bash
-llm-gateway run [flags]
+llm-gateway run <configPath>
 ```
 
-| Flag | Default | Description |
+| Argument/Flag | Default | Description |
 |---|---|---|
-| `-c`, `--config` | `etc/config.yaml` | path to the config file |
+| `<configPath>` | (required) | path to the config file |
 | `--address` | (from config) | listen address, overrides `listen` in config |
 | `--zrok` | `false` | enable zrok sharing, overrides `zrok.share.enabled` |
 | `--zrok-mode` | (from config) | zrok share mode (`public` or `private`), overrides `zrok.share.mode` |
@@ -53,7 +53,6 @@ providers:                # backend provider configs
 
 metrics:                  # optional: OpenTelemetry metrics
   enabled: false
-  listen: ":9090"         # separate metrics server address
 
 tracing:                  # optional: request body logging
   enabled: false
@@ -129,7 +128,6 @@ Any provider can be reached through a zrok share instead of (or alongside) a dir
 ```yaml
 metrics:
   enabled: true       # enable OpenTelemetry metrics with Prometheus exporter
-  listen: ":9090"     # optional: separate address for the metrics server
 ```
 
 When enabled, the Prometheus metrics endpoint is served at `GET /metrics` on the main listener. See [docs/metrics.md](metrics.md) for the full list of instruments.
