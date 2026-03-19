@@ -106,8 +106,6 @@ jobs:
       - build-windows
     permissions:
       contents: write
-      id-token: write
-      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -147,17 +145,9 @@ jobs:
 
           ls -lAR ./dist/
 
-          # create checksum file for the attestations
-          shasum --algorithm 256 ./dist/* | tee /tmp/attestation-subjects.sha256.txt
-
           # create checksum file for the release
           cd ./dist/
           shasum --algorithm 256 ./* | tee ./checksums.sha256.txt
-
-      - name: Attest Build Provenance
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-checksums: /tmp/attestation-subjects.sha256.txt
 
       - name: Draft Release
         uses: goreleaser/goreleaser-action@v6
