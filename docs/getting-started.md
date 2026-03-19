@@ -4,12 +4,15 @@ This guide walks you through setting up llm-gateway, starting with a minimal sin
 
 ## Prerequisites
 
-- **Go** (1.25+) to build from source
 - At least one backend:
   - [Ollama](https://ollama.com) running locally, or
   - An OpenAI or Anthropic API key
 
 ## 1. Install
+
+Pre-built binaries for Linux, macOS, and Windows are available on the [Releases](https://github.com/openziti/llm-gateway/releases) page. Download the archive for your platform, extract it, and place the `llm-gateway` binary on your `PATH`.
+
+Or install with Go (requires Go 1.25+):
 
 ```bash
 go install github.com/openziti/llm-gateway/cmd/llm-gateway@latest

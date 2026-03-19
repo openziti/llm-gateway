@@ -2,6 +2,15 @@
 
 An OpenAI-compatible API proxy that routes requests to OpenAI, Anthropic, or Ollama backends. Optionally expose the gateway via [zrok](https://zrok.io) for zero-trust access.
 
+## Why another LLM gateway?
+
+Most LLM proxies solve API translation. This one also solves the network problem: how do you connect a gateway to GPU boxes behind NAT, expose it to clients without opening ports, and route requests to the right model — all without bolting on a VPN, a service mesh, or a routing database?
+
+- **Zero-trust networking with zrok (over OpenZiti)** — the gateway and its backends communicate using [zrok](https://github.com/openziti/zrok) over [OpenZiti](https://openziti.io) overlay networks. Expose the gateway or reach an Ollama instance across NAT, air-gapped networks, or cloud boundaries without firewall rules or port forwarding. Both directions work the same way.
+- **Semantic routing** — a three-layer cascade (keyword heuristics, embedding similarity, LLM classifier) selects the best model automatically when clients omit the `model` field. No hand-maintained routing tables.
+- **Ollama multi-endpoint** — weighted round-robin, health checks with passive failover, and VM sleep detection across a pool of Ollama instances. Built for distributing inference across real hardware, not just proxying a single `localhost:11434`.
+- **Single binary, zero infrastructure** — one Go binary, one YAML file. No database, no message queue, no sidecar.
+
 ## Features
 
 - **OpenAI-compatible API**: Drop-in replacement for OpenAI client libraries
@@ -17,6 +26,10 @@ An OpenAI-compatible API proxy that routes requests to OpenAI, Anthropic, or Oll
 > **New here?** See the [Getting Started guide](docs/getting-started.md) for a step-by-step walkthrough from zero to a working gateway.
 
 ## Installation
+
+Pre-built binaries for Linux, macOS, and Windows are available on the [Releases](https://github.com/openziti/llm-gateway/releases) page.
+
+Or install with Go:
 
 ```bash
 go install github.com/openziti/llm-gateway/cmd/llm-gateway@latest
