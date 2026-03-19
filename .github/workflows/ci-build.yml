@@ -1,0 +1,45 @@
+name: CI Build
+
+on:
+  push:
+    branches:
+      - '**'
+    tags-ignore:
+      - '**'
+
+# cancel older, redundant builds that haven't started yet
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  build:
+    name: Build Linux AMD64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup-go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ./go.mod
+
+      - name: install
+        run: go install ./...
+
+      - name: test
+        run: go test ./...
+
+      - name: solve GOBIN
+        id: solve_go_bin
+        shell: bash
+        run: |
+          echo DEBUG: go_path="$(go env GOPATH)"
+          echo go_bin="$(go env GOPATH)/bin" >> $GITHUB_OUTPUT
+
+      - name: upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64
+          path: |
+            ${{ steps.solve_go_bin.outputs.go_bin }}/llm-gateway
+          if-no-files-found: error

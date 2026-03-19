@@ -1,0 +1,10 @@
+version: 2
+dist: .goreleaser-dist
+builds:
+  - skip: true
+release:
+  draft: true
+  prerelease: auto
+  mode: append
+  extra_files:
+    - glob: ./dist/*
