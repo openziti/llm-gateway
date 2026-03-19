@@ -116,9 +116,13 @@ jobs:
 
       - name: Fetch Source Archive
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          curl -sSLf -o ./dist/source-${{ github.ref_name }}.tar.gz \
-            https://api.github.com/repos/${{ github.repository }}/tarball/${{ github.ref_name }}
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            /repos/${{ github.repository }}/tarball/${{ github.ref_name }} \
+            > ./dist/source-${{ github.ref_name }}.tar.gz
 
       - name: Build SBOM from Dependency Graph as SPDX JSON
         shell: bash
