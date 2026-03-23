@@ -1,5 +1,6 @@
 name: mattermost-ziti-webhook
 on:
+  watch:
     types: [started]
 
 jobs:
