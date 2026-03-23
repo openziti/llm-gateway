@@ -8,10 +8,9 @@ jobs:
     runs-on: ubuntu-latest
     name: POST Webhook
     steps:
-    - uses: openziti/ziti-mattermost-action-py@main
+    - uses: openziti/ziti-mattermost-action-py@v1
       with:
         zitiId: ${{ secrets.ZITI_MATTERMOST_IDENTITY }}
-        webhookUrl: ${{ secrets.ZITI_MATTERMOST_WEBHOOK_URL }}
+        webhookUrl: ${{ secrets.ZHOOK_URL_DEV_NOTIFICATIONS }}
         eventJson: ${{ toJson(github.event) }}
         senderUsername: "GitHubZ"
-        destChannel: "dev-notifications"
