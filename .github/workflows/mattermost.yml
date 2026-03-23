@@ -11,7 +11,7 @@ jobs:
     - uses: openziti/ziti-mattermost-action-py@main
       with:
         zitiId: ${{ secrets.ZITI_MATTERMOST_IDENTITY }}
-        webhookUrl: ${{ secrets.ZHOOK_URL }}
+        webhookUrl: ${{ secrets.ZITI_MATTERMOST_WEBHOOK_URL }}
         eventJson: ${{ toJson(github.event) }}
         senderUsername: "GitHubZ"
         destChannel: "dev-notifications"
