@@ -13,14 +13,14 @@ import (
 	"github.com/michaelquigley/df/dl"
 )
 
-// endpoint wraps a single Ollama instance with health state.
+// endpoint wraps a single backend instance with health state.
 type endpoint struct {
-	name              string
-	ollama            *Ollama
-	healthy           bool
-	consecutiveFails  int
-	nextCheck         time.Time
-	mu                sync.RWMutex
+	name             string
+	local            *Local
+	healthy          bool
+	consecutiveFails int
+	nextCheck        time.Time
+	mu               sync.RWMutex
 }
 
 func (e *endpoint) isHealthy() bool {
@@ -35,7 +35,7 @@ func (e *endpoint) setHealthy(h bool) {
 	e.healthy = h
 }
 
-// EndpointOption configures a single endpoint for MultiOllama.
+// EndpointOption configures a single endpoint for MultiLocal.
 type EndpointOption struct {
 	Name       string
 	BaseURL    string
@@ -43,9 +43,9 @@ type EndpointOption struct {
 	Weight     int          // round-robin weight (default: 1)
 }
 
-// MultiOllama distributes requests across multiple Ollama endpoints
+// MultiLocal distributes requests across multiple endpoints
 // using weighted round-robin with health-check-based failover.
-type MultiOllama struct {
+type MultiLocal struct {
 	endpoints       []*endpoint // weighted: endpoint with weight N appears N times
 	uniqueEndpoints []*endpoint // deduplicated: one entry per physical endpoint
 	counter         atomic.Uint64
@@ -55,21 +55,21 @@ type MultiOllama struct {
 	done            chan struct{}
 }
 
-// NewMultiOllama creates a MultiOllama from the given endpoint options.
-func NewMultiOllama(opts []EndpointOption) *MultiOllama {
+// NewMultiLocal creates a MultiLocal from the given endpoint options.
+func NewMultiLocal(opts []EndpointOption) *MultiLocal {
 	var uniqueEndpoints []*endpoint
 	var endpoints []*endpoint
 
 	for _, opt := range opts {
-		var o *Ollama
+		var l *Local
 		if opt.HTTPClient != nil {
-			o = NewOllamaWithClient(opt.BaseURL, opt.HTTPClient)
+			l = NewLocalWithClient(opt.BaseURL, opt.HTTPClient)
 		} else {
-			o = NewOllama(opt.BaseURL)
+			l = NewLocal(opt.BaseURL)
 		}
 		ep := &endpoint{
 			name:    opt.Name,
-			ollama:  o,
+			local:   l,
 			healthy: true,
 		}
 		uniqueEndpoints = append(uniqueEndpoints, ep)
@@ -83,7 +83,7 @@ func NewMultiOllama(opts []EndpointOption) *MultiOllama {
 		}
 	}
 
-	return &MultiOllama{
+	return &MultiLocal{
 		endpoints:       endpoints,
 		uniqueEndpoints: uniqueEndpoints,
 		done:            make(chan struct{}),
@@ -92,7 +92,7 @@ func NewMultiOllama(opts []EndpointOption) *MultiOllama {
 
 // next returns the next healthy endpoint using round-robin.
 // If all endpoints are unhealthy, returns the first endpoint as best-effort.
-func (m *MultiOllama) next() *endpoint {
+func (m *MultiLocal) next() *endpoint {
 	n := len(m.endpoints)
 	start := m.counter.Add(1) - 1
 	for i := 0; i < n; i++ {
@@ -122,11 +122,11 @@ func isNetworkError(err error) bool {
 	return false
 }
 
-func (m *MultiOllama) ChatCompletion(ctx context.Context, req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
+func (m *MultiLocal) ChatCompletion(ctx context.Context, req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
 	var lastErr error
 	for i := 0; i < len(m.uniqueEndpoints); i++ {
 		ep := m.next()
-		resp, err := ep.ollama.ChatCompletion(ctx, req)
+		resp, err := ep.local.ChatCompletion(ctx, req)
 		if err == nil {
 			return resp, nil
 		}
@@ -142,11 +142,11 @@ func (m *MultiOllama) ChatCompletion(ctx context.Context, req *ChatCompletionReq
 	return nil, fmt.Errorf("all endpoints failed, last error: %w", lastErr)
 }
 
-func (m *MultiOllama) ChatCompletionStream(ctx context.Context, req *ChatCompletionRequest) (<-chan StreamEvent, error) {
+func (m *MultiLocal) ChatCompletionStream(ctx context.Context, req *ChatCompletionRequest) (<-chan StreamEvent, error) {
 	var lastErr error
 	for i := 0; i < len(m.uniqueEndpoints); i++ {
 		ep := m.next()
-		events, err := ep.ollama.ChatCompletionStream(ctx, req)
+		events, err := ep.local.ChatCompletionStream(ctx, req)
 		if err == nil {
 			return events, nil
 		}
@@ -162,7 +162,7 @@ func (m *MultiOllama) ChatCompletionStream(ctx context.Context, req *ChatComplet
 }
 
 // ListModels returns the union of models from all healthy endpoints, deduplicated by model ID.
-func (m *MultiOllama) ListModels(ctx context.Context) ([]Model, error) {
+func (m *MultiLocal) ListModels(ctx context.Context) ([]Model, error) {
 	seen := make(map[string]struct{})
 	var models []Model
 	var lastErr error
@@ -171,7 +171,7 @@ func (m *MultiOllama) ListModels(ctx context.Context) ([]Model, error) {
 		if !ep.isHealthy() {
 			continue
 		}
-		epModels, err := ep.ollama.ListModels(ctx)
+		epModels, err := ep.local.ListModels(ctx)
 		if err != nil {
 			dl.Errorf("endpoint '%s' list models error: %v", ep.name, err)
 			lastErr = err
@@ -194,7 +194,7 @@ func (m *MultiOllama) ListModels(ctx context.Context) ([]Model, error) {
 // StartHealthChecks begins periodic health checking of all endpoints.
 // Failing endpoints are rechecked with exponential backoff (up to 10x the
 // base interval) to avoid hammering infrastructure that is rate-limiting.
-func (m *MultiOllama) StartHealthChecks(interval, timeout time.Duration) {
+func (m *MultiLocal) StartHealthChecks(interval, timeout time.Duration) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.interval = interval
@@ -219,11 +219,11 @@ func (m *MultiOllama) StartHealthChecks(interval, timeout time.Duration) {
 }
 
 const (
-	maxBackoffMultiplier = 10          // cap backoff at 10x the base interval
+	maxBackoffMultiplier = 10             // cap backoff at 10x the base interval
 	staggerDelay         = 5 * time.Second // delay between endpoint checks after VM wake
 )
 
-func (m *MultiOllama) checkAll(timeout time.Duration) {
+func (m *MultiLocal) checkAll(timeout time.Duration) {
 	now := time.Now()
 
 	// detect VM sleep: if elapsed time since last check is more than 2x the
@@ -270,18 +270,29 @@ func (m *MultiOllama) checkAll(timeout time.Duration) {
 	}
 }
 
-func (m *MultiOllama) checkEndpoint(ep *endpoint, timeout time.Duration) bool {
+func (m *MultiLocal) checkEndpoint(ep *endpoint, timeout time.Duration) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", ep.ollama.baseURL+"/api/tags", nil)
+	// try the standard OpenAI-compatible endpoint first, so non-Ollama backends
+	// (vLLM, llama-server, SGLang, etc.) pass health checks
+	if m.probe(ctx, ep, "/v1/models") {
+		return true
+	}
+
+	// fall back to Ollama's native endpoint
+	return m.probe(ctx, ep, "/api/tags")
+}
+
+func (m *MultiLocal) probe(ctx context.Context, ep *endpoint, path string) bool {
+	req, err := http.NewRequestWithContext(ctx, "GET", ep.local.baseURL+path, nil)
 	if err != nil {
 		return false
 	}
 
-	resp, err := ep.ollama.client.Do(req)
+	resp, err := ep.local.client.Do(req)
 	if err != nil {
-		dl.Errorf("health check '%s' failed: %v", ep.name, err)
+		dl.Errorf("health check '%s' (%s) failed: %v", ep.name, path, err)
 		return false
 	}
 	resp.Body.Close()
@@ -289,14 +300,14 @@ func (m *MultiOllama) checkEndpoint(ep *endpoint, timeout time.Duration) bool {
 }
 
 // PrimaryBaseURL returns the first endpoint's base URL (for embedding provider).
-func (m *MultiOllama) PrimaryBaseURL() string {
-	return m.uniqueEndpoints[0].ollama.baseURL
+func (m *MultiLocal) PrimaryBaseURL() string {
+	return m.uniqueEndpoints[0].local.baseURL
 }
 
 // RoundRobinClient returns an HTTP client that distributes requests across
 // healthy endpoints with failover. It rewrites request URLs to target the
 // selected endpoint and uses that endpoint's transport (supporting zrok).
-func (m *MultiOllama) RoundRobinClient() *http.Client {
+func (m *MultiLocal) RoundRobinClient() *http.Client {
 	return &http.Client{
 		Transport: &roundRobinTransport{
 			endpoints: m.endpoints,
@@ -306,7 +317,7 @@ func (m *MultiOllama) RoundRobinClient() *http.Client {
 }
 
 // roundRobinTransport implements http.RoundTripper, distributing requests
-// across multiple Ollama endpoints with health-aware failover.
+// across multiple endpoints with health-aware failover.
 type roundRobinTransport struct {
 	endpoints []*endpoint
 	counter   *atomic.Uint64
@@ -346,7 +357,7 @@ func (t *roundRobinTransport) RoundTrip(req *http.Request) (*http.Response, erro
 }
 
 func (t *roundRobinTransport) doWithEndpoint(ep *endpoint, origReq *http.Request) (*http.Response, error) {
-	epURL, err := url.Parse(ep.ollama.baseURL)
+	epURL, err := url.Parse(ep.local.baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("bad endpoint URL: %w", err)
 	}
@@ -356,7 +367,7 @@ func (t *roundRobinTransport) doWithEndpoint(ep *endpoint, origReq *http.Request
 	req.URL.Host = epURL.Host
 	req.Host = epURL.Host
 
-	transport := ep.ollama.client.Transport
+	transport := ep.local.client.Transport
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
@@ -364,7 +375,7 @@ func (t *roundRobinTransport) doWithEndpoint(ep *endpoint, origReq *http.Request
 }
 
 // Close stops health checks and releases resources.
-func (m *MultiOllama) Close() error {
+func (m *MultiLocal) Close() error {
 	if m.cancel != nil {
 		m.cancel()
 		<-m.done

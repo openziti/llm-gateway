@@ -5,7 +5,7 @@ This guide walks you through setting up llm-gateway, starting with a minimal sin
 ## Prerequisites
 
 - At least one backend:
-  - [Ollama](https://ollama.com) running locally, or
+  - A local inference server ([Ollama](https://ollama.com), [vLLM](https://github.com/vllm-project/vllm), [llama-server](https://github.com/ggerganov/llama.cpp), etc.), or
   - An OpenAI or Anthropic API key
 
 ## 1. Install
@@ -26,15 +26,15 @@ cd llm-gateway
 go install ./...
 ```
 
-## 2. Minimal Config: Local Ollama
+## 2. Minimal Config: Local Backend
 
-The simplest setup proxies a local Ollama instance. Create `config.yaml`:
+The simplest setup proxies a local inference server. This example uses Ollama, but any server that exposes `/v1/chat/completions` works the same way -- just change the `base_url`. Create `config.yaml`:
 
 ```yaml
 listen: ":8080"
 
 providers:
-  ollama:
+  local:
     base_url: "http://localhost:11434"
 ```
 
@@ -51,7 +51,7 @@ curl http://localhost:8080/health
 # {"status":"ok"}
 ```
 
-List available models (these come from your Ollama instance):
+List available models (these come from your local backend):
 
 ```bash
 curl http://localhost:8080/v1/models
@@ -68,7 +68,15 @@ curl http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-At this point you have a working OpenAI-compatible API backed by Ollama. Any tool that speaks the OpenAI API (Open WebUI, Continue, etc.) can point at `http://localhost:8080` and use your local models.
+At this point you have a working OpenAI-compatible API backed by your local server. Any tool that speaks the OpenAI API (Open WebUI, Continue, etc.) can point at `http://localhost:8080` and use your local models.
+
+Using vLLM or llama-server instead of Ollama? Just change the URL:
+
+```yaml
+providers:
+  local:                                     # config key name -- works with any backend
+    base_url: "http://localhost:8000"        # vLLM default port
+```
 
 ## 3. Adding Cloud Providers
 
@@ -84,7 +92,7 @@ providers:
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
 
-  ollama:
+  local:
     base_url: "http://localhost:11434"
 ```
 
@@ -102,7 +110,7 @@ The gateway routes requests by model name prefix:
 |---|---|
 | `gpt-*`, `o1-*`, `o3-*` | OpenAI |
 | `claude-*` | Anthropic |
-| everything else | Ollama |
+| everything else | Local (configured as `local`) |
 
 All three providers speak the same OpenAI-compatible format -- the Anthropic translation is handled transparently. A client can switch between `gpt-4`, `claude-sonnet-4-20250514`, and `llama3` just by changing the `model` field.
 
@@ -243,7 +251,7 @@ routing:
 
   semantic:
     enabled: true
-    provider: ollama
+    provider: local
     model: nomic-embed-text
     threshold: 0.75
     ambiguous_threshold: 0.5
@@ -259,7 +267,7 @@ For ambiguous cases where embedding similarity falls between the two thresholds,
 ```yaml
   classifier:
     enabled: true
-    provider: ollama
+    provider: local
     model: llama3
     timeout_ms: 5000
     confidence_threshold: 0.7
@@ -279,13 +287,13 @@ The gateway logs show which layer made the decision and the confidence scores.
 
 See [semantic-routing.md](semantic-routing.md) for threshold tuning, comparison modes, caching, and the full config reference.
 
-## 6. Scaling Ollama with Multi-Endpoint
+## 6. Scaling with Multi-Endpoint Load Balancing
 
-When you have multiple Ollama instances, the gateway can distribute requests across them with weighted round-robin and automatic failover. Replace `base_url` with an `endpoints` list:
+When you have multiple inference backends (Ollama, vLLM, or any OpenAI-compatible server), the gateway can distribute requests across them with weighted round-robin and automatic failover. Replace `base_url` with an `endpoints` list:
 
 ```yaml
 providers:
-  ollama:
+  local:
     endpoints:
       - name: local-gpu
         base_url: "http://localhost:11434"
@@ -299,9 +307,9 @@ providers:
 
 The `weight` controls traffic proportion -- the remote GPU above gets ~2x the requests of the local one. Health checks run in the background; if an endpoint goes down, traffic automatically shifts to the remaining healthy endpoints.
 
-Embedding and classifier requests (when using `provider: ollama` for semantic routing) use the same round-robin distribution.
+Embedding and classifier requests (when using `provider: local` for semantic routing) use the same round-robin distribution.
 
-See [ollama-multi-endpoint.md](ollama-multi-endpoint.md) for failover behavior and more examples.
+See [multi-endpoint.md](multi-endpoint.md) for failover behavior and more examples.
 
 ## 7. Sharing over Zrok
 
@@ -326,13 +334,13 @@ llm-gateway run config.yaml --zrok --zrok-mode private
 
 The share token is logged at startup. Clients connect using the token rather than an IP address.
 
-### Reaching a Remote Ollama
+### Reaching a Remote Backend
 
-If Ollama runs on a different machine with a zrok share, connect to it without direct network access:
+If your inference server runs on a different machine with a zrok share, connect to it without direct network access:
 
 ```yaml
 providers:
-  ollama:
+  local:
     zrok_share_token: "remote-ollama-token"
 ```
 
@@ -390,7 +398,7 @@ providers:
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
 
-  ollama:
+  local:
     endpoints:
       - name: local
         base_url: "http://localhost:11434"
@@ -421,14 +429,14 @@ routing:
 
   semantic:
     enabled: true
-    provider: ollama
+    provider: local
     model: nomic-embed-text
     threshold: 0.75
     ambiguous_threshold: 0.5
 
   classifier:
     enabled: true
-    provider: ollama
+    provider: local
     model: llama3
     timeout_ms: 5000
     confidence_threshold: 0.7
@@ -462,6 +470,6 @@ tracing:
 - [providers.md](providers.md) -- provider details, streaming, and error handling
 - [semantic-routing.md](semantic-routing.md) -- threshold tuning, comparison modes, and caching
 - [api-keys.md](api-keys.md) -- per-key model and route restrictions
-- [ollama-multi-endpoint.md](ollama-multi-endpoint.md) -- weighted load balancing and failover
+- [multi-endpoint.md](multi-endpoint.md) -- weighted load balancing and failover
 - [zrok.md](zrok.md) -- overlay networking for sharing and access
 - [metrics.md](metrics.md) -- Prometheus instruments and example queries

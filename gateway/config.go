@@ -33,7 +33,7 @@ type ZrokShareConfig struct {
 type ProvidersConfig struct {
 	OpenAI    *OpenAIConfig
 	Anthropic *AnthropicConfig
-	Ollama    *OllamaConfig
+	Local     *LocalConfig
 }
 
 type OpenAIConfig struct {
@@ -48,14 +48,14 @@ type AnthropicConfig struct {
 	ZrokShareToken string
 }
 
-type OllamaConfig struct {
+type LocalConfig struct {
 	BaseURL        string
 	ZrokShareToken string
-	Endpoints      []OllamaEndpointConfig
+	Endpoints      []LocalEndpointConfig
 	HealthCheck    *HealthCheckConfig
 }
 
-type OllamaEndpointConfig struct {
+type LocalEndpointConfig struct {
 	Name           string
 	BaseURL        string
 	ZrokShareToken string

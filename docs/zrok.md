@@ -3,7 +3,7 @@
 The gateway uses [zrok](https://zrok.io) in two independent ways:
 
 1. **Sharing** -- exposing the gateway itself over a zrok share so clients can reach it without a public IP or open ports.
-2. **Accessing** -- connecting to backend providers (OpenAI, Anthropic, Ollama) through zrok shares instead of direct HTTP.
+2. **Accessing** -- connecting to backend providers (OpenAI, Anthropic, local/self-hosted) through zrok shares instead of direct HTTP.
 
 Both use zrok's overlay network built on [OpenZiti](https://openziti.io). The machine running the gateway must have a zrok environment enabled (`zrok enable`).
 
@@ -64,7 +64,7 @@ Any provider can be reached through a zrok share by setting `zrok_share_token` i
 
 ```yaml
 providers:
-  ollama:
+  local:
     zrok_share_token: "remote-ollama-token"
 
   anthropic:
@@ -76,17 +76,17 @@ providers:
 
 For each provider with a `zrok_share_token`, the gateway creates a **zrok access** object at startup. This access provides an `http.Client` whose `DialContext` function routes connections through the zrok overlay to the share, bypassing normal DNS and TCP routing.
 
-The provider uses this custom HTTP client for all its API calls. The `base_url` field still determines the URL path structure, but the actual network connection goes through zrok. If `base_url` is omitted, the provider's default is used (e.g., `https://api.openai.com` for OpenAI, `http://localhost:11434` for Ollama).
+The provider uses this custom HTTP client for all its API calls. The `base_url` field still determines the URL path structure, but the actual network connection goes through zrok. If `base_url` is omitted, the provider's default is used (e.g., `https://api.openai.com` for OpenAI, `http://localhost:11434` for the local provider).
 
 On shutdown, all access objects are deleted to clean up zrok resources.
 
-### Multi-Endpoint Ollama
+### Multi-Endpoint
 
-Each Ollama endpoint can independently use zrok or direct HTTP:
+Each endpoint can independently use zrok or direct HTTP:
 
 ```yaml
 providers:
-  ollama:
+  local:
     endpoints:
       - name: local
         base_url: "http://localhost:11434"
@@ -98,7 +98,7 @@ Each endpoint with a `zrok_share_token` gets its own zrok access and HTTP client
 
 ### Embedding and Classifier Providers
 
-When semantic routing is configured with `provider: ollama` and Ollama is in multi-endpoint mode, embedding and classifier requests are sent through the same round-robin client used for chat completions. This means they automatically benefit from the same load distribution and failover behavior.
+When semantic routing is configured with `provider: local` and the local provider is in multi-endpoint mode, embedding and classifier requests are sent through the same round-robin client used for chat completions. This means they automatically benefit from the same load distribution and failover behavior.
 
 ## Prerequisites
 

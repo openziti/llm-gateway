@@ -9,7 +9,7 @@ import (
 	"net/http"
 )
 
-// EmbedClient is an HTTP client for embedding APIs (Ollama or OpenAI).
+// EmbedClient is an HTTP client for embedding APIs (local or OpenAI).
 type EmbedClient struct {
 	provider string
 	model    string
@@ -55,8 +55,8 @@ func (c *EmbedClient) Embed(ctx context.Context, text string) ([]float64, error)
 // EmbedBatch generates embeddings for multiple texts.
 func (c *EmbedClient) EmbedBatch(ctx context.Context, texts []string) ([][]float64, error) {
 	switch c.provider {
-	case "ollama":
-		return c.embedOllama(ctx, texts)
+	case "local":
+		return c.embedLocal(ctx, texts)
 	case "openai":
 		return c.embedOpenAI(ctx, texts)
 	default:
@@ -64,19 +64,19 @@ func (c *EmbedClient) EmbedBatch(ctx context.Context, texts []string) ([][]float
 	}
 }
 
-// ollama embedding types
+// local embedding types (uses Ollama's /api/embed format)
 
-type ollamaEmbedRequest struct {
+type localEmbedRequest struct {
 	Model string `json:"model"`
 	Input any    `json:"input"`
 }
 
-type ollamaEmbedResponse struct {
+type localEmbedResponse struct {
 	Embeddings [][]float64 `json:"embeddings"`
 }
 
-func (c *EmbedClient) embedOllama(ctx context.Context, texts []string) ([][]float64, error) {
-	reqBody := ollamaEmbedRequest{
+func (c *EmbedClient) embedLocal(ctx context.Context, texts []string) ([][]float64, error) {
+	reqBody := localEmbedRequest{
 		Model: c.model,
 		Input: texts,
 	}
@@ -104,10 +104,10 @@ func (c *EmbedClient) embedOllama(ctx context.Context, texts []string) ([][]floa
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ollama embed error %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("local embed error %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var result ollamaEmbedResponse
+	var result localEmbedResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}

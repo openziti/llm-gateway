@@ -11,37 +11,37 @@ import (
 	"strings"
 )
 
-// Ollama implements the Provider interface for Ollama's API.
+// Local implements the Provider interface for any OpenAI-compatible backend.
 // It can connect via HTTP or through a zrok share.
-type Ollama struct {
+type Local struct {
 	baseURL string
 	client  *http.Client
 }
 
-// NewOllama creates a new Ollama provider with direct HTTP access.
-func NewOllama(baseURL string) *Ollama {
+// NewLocal creates a new local provider with direct HTTP access.
+func NewLocal(baseURL string) *Local {
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"
 	}
-	return &Ollama{
+	return &Local{
 		baseURL: baseURL,
 		client:  http.DefaultClient,
 	}
 }
 
-// NewOllamaWithClient creates a new Ollama provider with a custom HTTP client.
+// NewLocalWithClient creates a new local provider with a custom HTTP client.
 // Use this for zrok-based connections.
-func NewOllamaWithClient(baseURL string, client *http.Client) *Ollama {
+func NewLocalWithClient(baseURL string, client *http.Client) *Local {
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"
 	}
-	return &Ollama{
+	return &Local{
 		baseURL: baseURL,
 		client:  client,
 	}
 }
 
-func (o *Ollama) ChatCompletion(ctx context.Context, req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
+func (l *Local) ChatCompletion(ctx context.Context, req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
 	req.Stream = false
 
 	body, err := json.Marshal(req)
@@ -49,13 +49,13 @@ func (o *Ollama) ChatCompletion(ctx context.Context, req *ChatCompletionRequest)
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", l.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := o.client.Do(httpReq)
+	resp, err := l.client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -67,7 +67,7 @@ func (o *Ollama) ChatCompletion(ctx context.Context, req *ChatCompletionRequest)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, o.parseError(resp.StatusCode, respBody)
+		return nil, l.parseError(resp.StatusCode, respBody)
 	}
 
 	var result ChatCompletionResponse
@@ -78,7 +78,7 @@ func (o *Ollama) ChatCompletion(ctx context.Context, req *ChatCompletionRequest)
 	return &result, nil
 }
 
-func (o *Ollama) ChatCompletionStream(ctx context.Context, req *ChatCompletionRequest) (<-chan StreamEvent, error) {
+func (l *Local) ChatCompletionStream(ctx context.Context, req *ChatCompletionRequest) (<-chan StreamEvent, error) {
 	req.Stream = true
 
 	body, err := json.Marshal(req)
@@ -86,14 +86,14 @@ func (o *Ollama) ChatCompletionStream(ctx context.Context, req *ChatCompletionRe
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", l.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	resp, err := o.client.Do(httpReq)
+	resp, err := l.client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -101,16 +101,16 @@ func (o *Ollama) ChatCompletionStream(ctx context.Context, req *ChatCompletionRe
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, o.parseError(resp.StatusCode, respBody)
+		return nil, l.parseError(resp.StatusCode, respBody)
 	}
 
 	events := make(chan StreamEvent, 10)
-	go o.readSSEStream(resp.Body, events)
+	go l.readSSEStream(resp.Body, events)
 
 	return events, nil
 }
 
-func (o *Ollama) readSSEStream(body io.ReadCloser, events chan<- StreamEvent) {
+func (l *Local) readSSEStream(body io.ReadCloser, events chan<- StreamEvent) {
 	defer close(events)
 	defer body.Close()
 
@@ -147,13 +147,50 @@ func (o *Ollama) readSSEStream(body io.ReadCloser, events chan<- StreamEvent) {
 	}
 }
 
-func (o *Ollama) ListModels(ctx context.Context) ([]Model, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", o.baseURL+"/api/tags", nil)
+func (l *Local) ListModels(ctx context.Context) ([]Model, error) {
+	// try the standard OpenAI-compatible endpoint first, so non-Ollama backends
+	// (vLLM, llama-server, SGLang, etc.) work out of the box
+	if models, err := l.listModelsOpenAI(ctx); err == nil {
+		return models, nil
+	}
+
+	// fall back to Ollama's native /api/tags endpoint
+	return l.listModelsLegacyTags(ctx)
+}
+
+func (l *Local) listModelsOpenAI(ctx context.Context) ([]Model, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", l.baseURL+"/v1/models", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := o.client.Do(httpReq)
+	resp, err := l.client.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+
+	var result ModelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Data, nil
+}
+
+// listModelsLegacyTags uses Ollama's native /api/tags endpoint as a fallback
+// for backends that don't implement the standard /v1/models endpoint.
+func (l *Local) listModelsLegacyTags(ctx context.Context) ([]Model, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", l.baseURL+"/api/tags", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := l.client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -161,7 +198,7 @@ func (o *Ollama) ListModels(ctx context.Context) ([]Model, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, o.parseError(resp.StatusCode, respBody)
+		return nil, l.parseError(resp.StatusCode, respBody)
 	}
 
 	var result struct {
@@ -186,7 +223,7 @@ func (o *Ollama) ListModels(ctx context.Context) ([]Model, error) {
 	return models, nil
 }
 
-func (o *Ollama) parseError(statusCode int, body []byte) error {
+func (l *Local) parseError(statusCode int, body []byte) error {
 	var errResp struct {
 		Error string `json:"error"`
 	}
@@ -198,8 +235,8 @@ func (o *Ollama) parseError(statusCode int, body []byte) error {
 	case http.StatusNotFound:
 		return NewAPIError("model not found", ErrorTypeNotFound)
 	case http.StatusServiceUnavailable:
-		return NewAPIError("ollama service unavailable", ErrorTypeServiceUnavailable)
+		return NewAPIError("service unavailable", ErrorTypeServiceUnavailable)
 	default:
-		return NewAPIError(fmt.Sprintf("Ollama API error: %s", string(body)), ErrorTypeServer)
+		return NewAPIError(fmt.Sprintf("backend API error: %s", string(body)), ErrorTypeServer)
 	}
 }

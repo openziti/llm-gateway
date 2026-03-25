@@ -19,7 +19,7 @@ providers:
     # base_url: "https://api.anthropic.com"  # optional: override base URL
     # zrok_share_token: "abc123"  # optional: connect via zrok share
 
-  ollama:
+  local:
     base_url: "http://localhost:11434"
     # zrok_share_token: "abc123"  # optional: connect via zrok share
 
@@ -92,7 +92,7 @@ providers:
 #
 #   semantic:
 #     enabled: true
-#     provider: ollama              # ollama or openai
+#     provider: local              # local or openai
 #     model: nomic-embed-text       # embedding model name
 #     threshold: 0.82               # minimum similarity for confident match
 #     ambiguous_threshold: 0.65     # below threshold but above this -> escalate to classifier
@@ -100,7 +100,7 @@ providers:
 #
 #   classifier:
 #     enabled: true
-#     provider: ollama              # ollama or openai (must support /v1/chat/completions)
+#     provider: local              # local or openai (must support /v1/chat/completions)
 #     model: llama3                 # model for classification
 #     timeout_ms: 5000              # timeout for classifier requests
 #     confidence_threshold: 0.7     # minimum confidence to accept classification
