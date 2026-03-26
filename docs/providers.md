@@ -1,6 +1,6 @@
 # Providers
 
-The gateway presents a single OpenAI-compatible API to clients and translates requests to the appropriate backend provider. Three providers are supported: OpenAI, Anthropic, and Ollama.
+The gateway presents a single OpenAI-compatible API to clients and translates requests to the appropriate backend provider. Three provider types are supported: OpenAI (and compatible APIs), Anthropic, and a local/self-hosted provider for any backend that implements `/v1/chat/completions`.
 
 ## API Surface
 
@@ -23,9 +23,9 @@ Models are routed to providers by prefix matching on the model name:
 |---|---|
 | `gpt-*`, `o1-*`, `o3-*` | OpenAI |
 | `claude-*` | Anthropic |
-| everything else | Ollama |
+| everything else | Local (configured as `local`) |
 
-Matching is case-insensitive. A request for `gpt-4` goes to OpenAI; a request for `claude-haiku-4-5-20251001` goes to Anthropic; a request for `llama3` or `qwen3-vl:30b` goes to Ollama.
+Matching is case-insensitive. A request for `gpt-4` goes to OpenAI; a request for `claude-haiku-4-5-20251001` goes to Anthropic; a request for `llama3` or `qwen3-vl:30b` goes to the local provider. The local provider is configured under the `local` key in the YAML config -- it works with any OpenAI-compatible backend.
 
 If the target provider isn't configured, the gateway returns an error:
 
@@ -101,13 +101,15 @@ Anthropic error types are mapped to the gateway's OpenAI-compatible error types:
 | `not_found_error` | `not_found_error` | 404 |
 | (other) | `server_error` | 500 |
 
-## Ollama Provider
+## Local / Self-Hosted Provider
 
-Ollama natively implements an [OpenAI-compatible API](https://github.com/ollama/ollama/blob/main/docs/openai.md), so the Ollama provider is a near-direct pass-through. Chat completions go to `POST {base_url}/v1/chat/completions`.
+The local provider is a direct pass-through to any OpenAI-compatible backend. Chat completions go to `POST {base_url}/v1/chat/completions`. This means Ollama, vLLM, llama-server, SGLang, or any server exposing this endpoint can be used.
 
-Model listing calls Ollama's native `GET {base_url}/api/tags` endpoint and translates the response into the OpenAI models format.
+Configured under the `local` key in the YAML config. The config key name does not restrict which backends can be used.
 
-For multi-endpoint Ollama with load balancing and failover, see [docs/ollama-multi-endpoint.md](ollama-multi-endpoint.md).
+Model listing tries `GET {base_url}/v1/models` first (the standard OpenAI-compatible endpoint), falling back to Ollama's native `GET {base_url}/api/tags` if needed.
+
+For multi-endpoint load balancing and failover, see [docs/multi-endpoint.md](multi-endpoint.md).
 
 ## Streaming
 

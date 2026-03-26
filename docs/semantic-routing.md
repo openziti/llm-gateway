@@ -14,7 +14,7 @@ routing:
 
   semantic:
     enabled: true
-    provider: ollama
+    provider: local
     model: nomic-embed-text
     threshold: 0.75
     ambiguous_threshold: 0.5
@@ -191,7 +191,7 @@ Messages longer than 2048 characters are truncated before embedding.
 ```yaml
 semantic:
   enabled: true
-  provider: ollama          # ollama or openai
+  provider: local           # local or openai
   model: nomic-embed-text   # embedding model name
   threshold: 0.75           # minimum similarity for a confident match
   ambiguous_threshold: 0.5  # below threshold but above this -> escalate to classifier
@@ -203,7 +203,7 @@ semantic:
 
 ### Embedding Providers
 
-**Ollama** -- calls `POST /api/embed` with `{"model": "<model>", "input": ["text1", "text2"]}`. No API key needed. When using Ollama multi-endpoint mode, embedding requests are sent through the same round-robin client used for chat completions.
+**Ollama** -- calls `POST /api/embed` with `{"model": "<model>", "input": ["text1", "text2"]}`. No API key needed. When using multi-endpoint mode, embedding requests are sent through the same round-robin client used for chat completions.
 
 **OpenAI** -- calls `POST /v1/embeddings` with an `Authorization: Bearer` header. Requires `api_key` in the provider config.
 
@@ -304,7 +304,7 @@ The returned `category` is matched case-insensitively against route names. If th
 ```yaml
 classifier:
   enabled: true
-  provider: ollama           # ollama or openai
+  provider: local            # local or openai
   model: qwen3-vl:30b       # any model that supports /v1/chat/completions
   timeout_ms: 10000          # request timeout in milliseconds (0 = no timeout)
   confidence_threshold: 0.7  # minimum confidence to accept the classification
@@ -362,7 +362,7 @@ routing:
 
   semantic:
     enabled: true
-    provider: ollama             # ollama or openai
+    provider: local              # local or openai
     model: nomic-embed-text      # embedding model
     threshold: 0.75              # confident match threshold
     ambiguous_threshold: 0.5     # ambiguous escalation threshold
@@ -373,7 +373,7 @@ routing:
 
   classifier:
     enabled: true
-    provider: ollama             # ollama or openai
+    provider: local              # local or openai
     model: qwen3-vl:30b         # classifier model
     timeout_ms: 10000            # request timeout (default: 0 / no timeout)
     confidence_threshold: 0.7    # minimum confidence (default: 0)

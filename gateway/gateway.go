@@ -23,7 +23,7 @@ type Gateway struct {
 	keyStore         *KeyStore
 	share            *Share
 	accesses         []*Access
-	ollamaHTTPClient *http.Client
+	localHTTPClient *http.Client
 	meters           *meters
 	metricsHandler   http.Handler
 }
@@ -122,40 +122,40 @@ func (g *Gateway) initProviders() error {
 		}
 	}
 
-	// initialize ollama provider
-	if g.cfg.Providers.Ollama != nil {
-		if len(g.cfg.Providers.Ollama.Endpoints) > 0 {
-			if err := g.initOllamaMulti(); err != nil {
+	// initialize local provider
+	if g.cfg.Providers.Local != nil {
+		if len(g.cfg.Providers.Local.Endpoints) > 0 {
+			if err := g.initLocalMulti(); err != nil {
 				return err
 			}
 		} else {
-			g.initOllamaSingle()
+			g.initLocalSingle()
 		}
 	}
 
 	return nil
 }
 
-func (g *Gateway) initOllamaSingle() {
-	cfg := g.cfg.Providers.Ollama
+func (g *Gateway) initLocalSingle() {
+	cfg := g.cfg.Providers.Local
 	if cfg.ZrokShareToken != "" {
 		access, err := NewAccess(cfg.ZrokShareToken)
 		if err != nil {
-			dl.Errorf("failed to create zrok access for ollama: %v", err)
+			dl.Errorf("failed to create zrok access for local provider: %v", err)
 			return
 		}
 		g.accesses = append(g.accesses, access)
-		g.ollamaHTTPClient = access.HTTPClient()
-		g.providers[providers.ProviderOllama] = providers.NewOllamaWithClient(cfg.BaseURL, g.ollamaHTTPClient)
-		dl.Infof("initialized ollama provider via zrok share '%s'", cfg.ZrokShareToken)
+		g.localHTTPClient = access.HTTPClient()
+		g.providers[providers.ProviderLocal] = providers.NewLocalWithClient(cfg.BaseURL, g.localHTTPClient)
+		dl.Infof("initialized local provider via zrok share '%s'", cfg.ZrokShareToken)
 	} else {
-		g.providers[providers.ProviderOllama] = providers.NewOllama(cfg.BaseURL)
-		dl.Infof("initialized ollama provider at '%s'", cfg.BaseURL)
+		g.providers[providers.ProviderLocal] = providers.NewLocal(cfg.BaseURL)
+		dl.Infof("initialized local provider at '%s'", cfg.BaseURL)
 	}
 }
 
-func (g *Gateway) initOllamaMulti() error {
-	cfg := g.cfg.Providers.Ollama
+func (g *Gateway) initLocalMulti() error {
+	cfg := g.cfg.Providers.Local
 	opts := make([]providers.EndpointOption, 0, len(cfg.Endpoints))
 
 	for _, ep := range cfg.Endpoints {
@@ -175,7 +175,7 @@ func (g *Gateway) initOllamaMulti() error {
 		opts = append(opts, opt)
 	}
 
-	multi := providers.NewMultiOllama(opts)
+	multi := providers.NewMultiLocal(opts)
 
 	// start health checks
 	interval := 60 * time.Second
@@ -190,16 +190,16 @@ func (g *Gateway) initOllamaMulti() error {
 	}
 	multi.StartHealthChecks(interval, timeout)
 
-	g.providers[providers.ProviderOllama] = multi
+	g.providers[providers.ProviderLocal] = multi
 
 	for _, ep := range cfg.Endpoints {
 		if ep.ZrokShareToken != "" {
-			dl.Infof("initialized ollama endpoint '%s' via zrok share '%s'", ep.Name, ep.ZrokShareToken)
+			dl.Infof("initialized local endpoint '%s' via zrok share '%s'", ep.Name, ep.ZrokShareToken)
 		} else {
-			dl.Infof("initialized ollama endpoint '%s' at '%s'", ep.Name, ep.BaseURL)
+			dl.Infof("initialized local endpoint '%s' at '%s'", ep.Name, ep.BaseURL)
 		}
 	}
-	dl.Infof("initialized multi-endpoint ollama provider with %d endpoints", len(cfg.Endpoints))
+	dl.Infof("initialized multi-endpoint local provider with %d endpoints", len(cfg.Endpoints))
 
 	return nil
 }
@@ -343,17 +343,17 @@ func (g *Gateway) resolveEmbedProvider(provider string) (baseURL, apiKey string,
 	}
 
 	switch provider {
-	case "ollama":
-		if g.cfg.Providers.Ollama != nil {
-			if multi, ok := g.providers[providers.ProviderOllama].(*providers.MultiOllama); ok {
+	case "local":
+		if g.cfg.Providers.Local != nil {
+			if multi, ok := g.providers[providers.ProviderLocal].(*providers.MultiLocal); ok {
 				baseURL = multi.PrimaryBaseURL()
 				httpClient = multi.RoundRobinClient()
 			} else {
-				baseURL = g.cfg.Providers.Ollama.BaseURL
+				baseURL = g.cfg.Providers.Local.BaseURL
 				if baseURL == "" {
 					baseURL = "http://localhost:11434"
 				}
-				httpClient = g.ollamaHTTPClient
+				httpClient = g.localHTTPClient
 			}
 		}
 	case "openai":

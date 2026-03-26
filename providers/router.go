@@ -11,7 +11,7 @@ type ProviderType string
 const (
 	ProviderOpenAI    ProviderType = "openai"
 	ProviderAnthropic ProviderType = "anthropic"
-	ProviderOllama    ProviderType = "ollama"
+	ProviderLocal    ProviderType = "local"
 )
 
 // Router routes models to their appropriate providers.
@@ -28,7 +28,7 @@ func NewRouter(providers map[ProviderType]Provider) *Router {
 // Routing rules:
 // - gpt-*, o1-*, o3-* -> OpenAI
 // - claude-* -> Anthropic
-// - everything else -> Ollama
+// - everything else -> Local
 func (r *Router) Route(model string) (Provider, ProviderType, error) {
 	providerType := r.resolveProvider(model)
 
@@ -56,8 +56,8 @@ func (r *Router) resolveProvider(model string) ProviderType {
 		return ProviderAnthropic
 	}
 
-	// default to ollama for all other models (llama, mistral, etc.)
-	return ProviderOllama
+	// default to local for all other models (llama, mistral, etc.)
+	return ProviderLocal
 }
 
 // GetProvider returns the provider for the given type.

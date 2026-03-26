@@ -1,14 +1,14 @@
 # llm-gateway
 
-An OpenAI-compatible API proxy that routes requests to OpenAI, Anthropic, or Ollama backends. Optionally expose the gateway via [zrok](https://zrok.io) for zero-trust access.
+An OpenAI-compatible API proxy that routes requests to OpenAI, Anthropic, and any OpenAI-compatible backend (Ollama, vLLM, llama-server, SGLang, etc.). Optionally expose the gateway via [zrok](https://zrok.io) for zero-trust access.
 
 ## Why another LLM gateway?
 
 Most LLM proxies solve API translation. This one also solves the network problem: how do you connect a gateway to GPU boxes behind NAT, expose it to clients without opening ports, and route requests to the right model — all without bolting on a VPN, a service mesh, or a routing database?
 
-- **Zero-trust networking with zrok (over OpenZiti)** — the gateway and its backends communicate using [zrok](https://github.com/openziti/zrok) over [OpenZiti](https://openziti.io) overlay networks. Expose the gateway or reach an Ollama instance across NAT, air-gapped networks, or cloud boundaries without firewall rules or port forwarding. Both directions work the same way.
+- **Zero-trust networking with zrok (over OpenZiti)** — the gateway and its backends communicate using [zrok](https://github.com/openziti/zrok) over [OpenZiti](https://openziti.io) overlay networks. Expose the gateway or reach a backend across NAT, air-gapped networks, or cloud boundaries without firewall rules or port forwarding. Both directions work the same way.
 - **Semantic routing** — a three-layer cascade (keyword heuristics, embedding similarity, LLM classifier) selects the best model automatically when clients omit the `model` field. No hand-maintained routing tables.
-- **Ollama multi-endpoint** — weighted round-robin, health checks with passive failover, and VM sleep detection across a pool of Ollama instances. Built for distributing inference across real hardware, not just proxying a single `localhost:11434`.
+- **Multi-endpoint load balancing** — weighted round-robin, health checks with passive failover, and VM sleep detection across a pool of inference servers. Works with Ollama, llama-server, vLLM, SGLang, or anything that exposes `/v1/chat/completions`. Built for distributing inference across real hardware.
 - **Single binary, zero infrastructure** — one Go binary, one YAML file. No database, no message queue, no sidecar.
 
 ## Features
@@ -18,7 +18,7 @@ Most LLM proxies solve API translation. This one also solves the network problem
 - **Semantic routing**: Optional three-layer cascade (heuristics, embeddings, LLM classifier) to automatically select the best model when `model` is omitted
 - **Anthropic translation**: Transparently converts OpenAI format to/from Anthropic's Messages API
 - **Streaming support**: Server-Sent Events (SSE) streaming for all providers
-- **Ollama multi-endpoint**: Round-robin load distribution and automatic failover across multiple Ollama instances
+- **Multi-endpoint load balancing**: Round-robin load distribution and automatic failover across multiple inference backends
 - **OpenTelemetry metrics**: Prometheus-exported metrics for requests, latency, tokens, and endpoint health
 - **zrok integration**: Expose the gateway via zrok private or public shares
 - **Zero-trust backends**: Connect to any provider via zrok shares (no exposed ports)
@@ -56,7 +56,7 @@ providers:
     api_key: "${OPENAI_API_KEY}"
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
-  ollama:
+  local:                               # works with any OpenAI-compatible backend
     base_url: "http://localhost:11434"
 ```
 
@@ -89,15 +89,17 @@ Requests are routed based on model name prefix:
 | `o1-*` | OpenAI |
 | `o3-*` | OpenAI |
 | `claude-*` | Anthropic |
-| Everything else | Ollama |
+| Everything else | Local / self-hosted |
 
-### Ollama Multi-Endpoint
+Any model that doesn't match the OpenAI or Anthropic prefixes is routed to the local provider. It works with any OpenAI-compatible backend — Ollama, vLLM, llama-server, SGLang, or similar.
 
-Distribute Ollama requests across multiple instances for load balancing and resilience. When `endpoints` is present, the gateway uses round-robin selection with automatic failover:
+### Multi-Endpoint Load Balancing
+
+Distribute requests across multiple inference backends for load balancing and resilience. When `endpoints` is present, the gateway uses round-robin selection with automatic failover:
 
 ```yaml
 providers:
-  ollama:
+  local:
     endpoints:
       - name: gpu-box-1
         base_url: "http://10.0.0.1:11434"
@@ -111,7 +113,9 @@ providers:
       timeout_seconds: 5     # default: 5
 ```
 
-Each endpoint can use direct HTTP or a zrok share. The optional `weight` (default: 1) controls the proportion of traffic an endpoint receives — an endpoint with weight 3 gets ~3x the requests of weight 1. A background goroutine pings each endpoint's `GET /api/tags` at the configured interval and marks unhealthy endpoints for automatic skip. Network errors during requests also trigger immediate passive failover. All gateway features that use the Ollama provider (chat completions, embeddings, classifier) distribute requests across the endpoint group.
+Each endpoint can use direct HTTP or a zrok share. The optional `weight` (default: 1) controls the proportion of traffic an endpoint receives — an endpoint with weight 3 gets ~3x the requests of weight 1. A background goroutine pings each endpoint at the configured interval and marks unhealthy endpoints for automatic skip. Network errors during requests also trigger immediate passive failover. All gateway features that use the local provider (chat completions, embeddings, classifier) distribute requests across the endpoint group.
+
+The endpoints don't all have to run the same software. You can mix Ollama, vLLM, llama-server, or any other OpenAI-compatible server in the same pool — the load balancing layer doesn't care what's behind the URL.
 
 ## API Endpoints
 
@@ -121,7 +125,7 @@ OpenAI-compatible chat completions endpoint. Supports both streaming (`stream: t
 
 ### GET /v1/models
 
-Returns available models from all configured providers. When semantic routing is enabled, includes an `auto` virtual model that triggers automatic model selection. With multi-endpoint Ollama, returns the deduplicated union of models from all healthy endpoints.
+Returns available models from all configured providers. When semantic routing is enabled, includes an `auto` virtual model that triggers automatic model selection. With multi-endpoint mode, returns the deduplicated union of models from all healthy endpoints.
 
 ### GET /health
 
@@ -155,7 +159,7 @@ providers:
     base_url: ""             # optional: override base URL
     zrok_share_token: ""     # optional: connect via zrok share
 
-  ollama:
+  local:
     base_url: "http://localhost:11434"
     zrok_share_token: ""     # optional: connect via zrok share
 
@@ -235,7 +239,7 @@ routing:
 
   semantic:
     enabled: true
-    provider: ollama            # ollama or openai
+    provider: local             # local or openai
     model: nomic-embed-text
     threshold: 0.82             # confident match
     ambiguous_threshold: 0.65   # escalate to classifier
@@ -243,7 +247,7 @@ routing:
 
   classifier:
     enabled: true
-    provider: ollama
+    provider: local
     model: llama3
     timeout_ms: 5000
     confidence_threshold: 0.7
@@ -418,7 +422,7 @@ providers:
     api_key: "${ANTHROPIC_API_KEY}"
     zrok_share_token: "anthropic-proxy-share-token"
 
-  ollama:
+  local:
     zrok_share_token: "ollama-share-token"
 ```
 
@@ -446,7 +450,7 @@ response = client.chat.completions.create(
     messages=[{"role": "user", "content": "Hello!"}]
 )
 
-# Routes to Ollama
+# Routes to local backend (Ollama, vLLM, etc.)
 response = client.chat.completions.create(
     model="llama3.2",
     messages=[{"role": "user", "content": "Hello!"}]
@@ -474,7 +478,7 @@ for chunk in stream:
 - [Providers](docs/providers.md) -- provider details, streaming, and error handling
 - [Semantic Routing](docs/semantic-routing.md) -- threshold tuning, comparison modes, and caching
 - [API Keys](docs/api-keys.md) -- per-key model and route restrictions
-- [Ollama Multi-Endpoint](docs/ollama-multi-endpoint.md) -- weighted load balancing and failover
+- [Multi-Endpoint Load Balancing](docs/multi-endpoint.md) -- weighted load balancing and failover
 - [Metrics](docs/metrics.md) -- Prometheus instruments and example queries
 - [Streaming](docs/streaming.md) -- SSE streaming details
 - [zrok](docs/zrok.md) -- overlay networking for sharing and access

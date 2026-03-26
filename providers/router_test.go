@@ -25,12 +25,12 @@ func (m *mockProvider) ListModels(ctx context.Context) ([]Model, error) {
 func TestRouterRoute(t *testing.T) {
 	openai := &mockProvider{name: "openai"}
 	anthropic := &mockProvider{name: "anthropic"}
-	ollama := &mockProvider{name: "ollama"}
+	local := &mockProvider{name: "local"}
 
 	router := NewRouter(map[ProviderType]Provider{
 		ProviderOpenAI:    openai,
 		ProviderAnthropic: anthropic,
-		ProviderOllama:    ollama,
+		ProviderLocal:     local,
 	})
 
 	tests := []struct {
@@ -53,15 +53,15 @@ func TestRouterRoute(t *testing.T) {
 		{"claude-3-5-sonnet-20241022", ProviderAnthropic},
 		{"CLAUDE-3-opus", ProviderAnthropic}, // case insensitive
 
-		// ollama models (everything else)
-		{"llama2", ProviderOllama},
-		{"llama3", ProviderOllama},
-		{"mistral", ProviderOllama},
-		{"mixtral", ProviderOllama},
-		{"codellama", ProviderOllama},
-		{"phi3", ProviderOllama},
-		{"qwen2", ProviderOllama},
-		{"custom-model", ProviderOllama},
+		// local models (everything else)
+		{"llama2", ProviderLocal},
+		{"llama3", ProviderLocal},
+		{"mistral", ProviderLocal},
+		{"mixtral", ProviderLocal},
+		{"codellama", ProviderLocal},
+		{"phi3", ProviderLocal},
+		{"qwen2", ProviderLocal},
+		{"custom-model", ProviderLocal},
 	}
 
 	for _, tt := range tests {
@@ -81,9 +81,9 @@ func TestRouterRoute(t *testing.T) {
 }
 
 func TestRouterRouteProviderNotConfigured(t *testing.T) {
-	// router with only ollama configured
+	// router with only local configured
 	router := NewRouter(map[ProviderType]Provider{
-		ProviderOllama: &mockProvider{name: "ollama"},
+		ProviderLocal: &mockProvider{name: "local"},
 	})
 
 	// should fail for openai model
@@ -98,13 +98,13 @@ func TestRouterRouteProviderNotConfigured(t *testing.T) {
 		t.Error("expected error for unconfigured provider")
 	}
 
-	// should succeed for ollama model
+	// should succeed for local model
 	provider, providerType, err := router.Route("llama2")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	if providerType != ProviderOllama {
-		t.Errorf("expected ollama provider, got %v", providerType)
+	if providerType != ProviderLocal {
+		t.Errorf("expected local provider, got %v", providerType)
 	}
 	if provider == nil {
 		t.Error("expected non-nil provider")

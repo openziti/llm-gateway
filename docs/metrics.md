@@ -72,7 +72,7 @@ A high proportion of `default` decisions may indicate that thresholds are too st
 
 ### Health Metrics
 
-**`llm_gateway.endpoint.healthy`** (up-down counter) -- per-endpoint health status for multi-endpoint Ollama. Value is 1 for healthy endpoints and 0 for unhealthy endpoints. The `endpoint` attribute identifies the endpoint by name.
+**`llm_gateway.endpoint.healthy`** (up-down counter) -- per-endpoint health status for multi-endpoint mode. Value is 1 for healthy endpoints and 0 for unhealthy endpoints. The `endpoint` attribute identifies the endpoint by name.
 
 ## Prometheus Scraping
 

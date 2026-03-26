@@ -9,7 +9,7 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "llm-gateway",
-	Short: "OpenAI-compatible API proxy to OpenAI/Anthropic/Ollama via zrok",
+	Short: "OpenAI-compatible API proxy to OpenAI/Anthropic/local backends via zrok",
 }
 
 func main() {

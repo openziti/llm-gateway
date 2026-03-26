@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestEmbedClientOllama(t *testing.T) {
+func TestEmbedClientLocal(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/embed" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
@@ -17,14 +17,14 @@ func TestEmbedClientOllama(t *testing.T) {
 			t.Errorf("unexpected method: %s", r.Method)
 		}
 
-		var req ollamaEmbedRequest
+		var req localEmbedRequest
 		json.NewDecoder(r.Body).Decode(&req)
 
 		if req.Model != "nomic-embed-text" {
 			t.Errorf("unexpected model: %s", req.Model)
 		}
 
-		resp := ollamaEmbedResponse{
+		resp := localEmbedResponse{
 			Embeddings: [][]float64{
 				{0.1, 0.2, 0.3},
 			},
@@ -33,7 +33,7 @@ func TestEmbedClientOllama(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewEmbedClient("ollama", "nomic-embed-text", server.URL, "")
+	client := NewEmbedClient("local", "nomic-embed-text", server.URL, "")
 	vec, err := client.Embed(context.Background(), "hello world")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -46,9 +46,9 @@ func TestEmbedClientOllama(t *testing.T) {
 	}
 }
 
-func TestEmbedClientOllamaBatch(t *testing.T) {
+func TestEmbedClientLocalBatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := ollamaEmbedResponse{
+		resp := localEmbedResponse{
 			Embeddings: [][]float64{
 				{0.1, 0.2},
 				{0.3, 0.4},
@@ -58,7 +58,7 @@ func TestEmbedClientOllamaBatch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewEmbedClient("ollama", "nomic-embed-text", server.URL, "")
+	client := NewEmbedClient("local", "nomic-embed-text", server.URL, "")
 	vecs, err := client.EmbedBatch(context.Background(), []string{"hello", "world"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -129,7 +129,7 @@ func TestEmbedClientError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewEmbedClient("ollama", "nomic-embed-text", server.URL, "")
+	client := NewEmbedClient("local", "nomic-embed-text", server.URL, "")
 	_, err := client.Embed(context.Background(), "hello")
 	if err == nil {
 		t.Fatal("expected error")
@@ -146,7 +146,7 @@ func TestEmbedClientUnsupportedProvider(t *testing.T) {
 
 func TestEmbedClientWithHTTPClient(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := ollamaEmbedResponse{
+		resp := localEmbedResponse{
 			Embeddings: [][]float64{{1.0, 2.0}},
 		}
 		json.NewEncoder(w).Encode(resp)
@@ -154,7 +154,7 @@ func TestEmbedClientWithHTTPClient(t *testing.T) {
 	defer server.Close()
 
 	customClient := &http.Client{}
-	client := NewEmbedClientWithHTTPClient("ollama", "test", server.URL, "", customClient)
+	client := NewEmbedClientWithHTTPClient("local", "test", server.URL, "", customClient)
 	vec, err := client.Embed(context.Background(), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

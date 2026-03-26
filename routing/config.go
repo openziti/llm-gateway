@@ -45,7 +45,7 @@ type MatchCondition struct {
 // SemanticConfig configures embedding-based semantic matching.
 type SemanticConfig struct {
 	Enabled            bool
-	Provider           string // ollama or openai
+	Provider           string // local or openai
 	Model              string
 	Threshold          float64
 	AmbiguousThreshold float64
@@ -58,7 +58,7 @@ type SemanticConfig struct {
 // ClassifierConfig configures LLM-based classification.
 type ClassifierConfig struct {
 	Enabled             bool
-	Provider            string // ollama or openai
+	Provider            string // local or openai
 	Model               string
 	TimeoutMs           int
 	ConfidenceThreshold float64

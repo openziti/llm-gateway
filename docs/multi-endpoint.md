@@ -1,6 +1,18 @@
-# Multi-Endpoint Ollama
+# Multi-Endpoint Load Balancing
 
-When you have multiple Ollama instances (e.g., several GPU machines), the gateway can distribute requests across them with weighted round-robin load balancing, health checking, and automatic failover.
+When you have multiple inference backends (e.g., several GPU machines running Ollama, vLLM, llama-server, or any OpenAI-compatible server), the gateway can distribute requests across them with weighted round-robin load balancing, health checking, and automatic failover.
+
+## Backend Compatibility
+
+The multi-endpoint layer sends chat completions to `POST {base_url}/v1/chat/completions` -- the standard OpenAI-compatible endpoint. Any backend that implements this endpoint works as a multi-endpoint target:
+
+- [Ollama](https://ollama.com)
+- [llama.cpp / llama-server](https://github.com/ggerganov/llama.cpp)
+- [vLLM](https://github.com/vllm-project/vllm)
+- [SGLang](https://github.com/sgl-project/sglang)
+- Any other OpenAI-compatible inference server
+
+The `local` config key is the section name -- it does not restrict which backends you can use.
 
 ## Configuration
 
@@ -8,7 +20,7 @@ Replace the single `base_url`/`zrok_share_token` with an `endpoints` list:
 
 ```yaml
 providers:
-  ollama:
+  local:
     endpoints:
       - name: gpu-box-1
         base_url: "http://10.0.0.1:11434"
@@ -43,14 +55,14 @@ If all endpoints are unhealthy, the first endpoint is used as a best-effort fall
 
 ### Health Checking
 
-A background goroutine periodically sends `GET /api/tags` to each endpoint. This is a lightweight Ollama endpoint that lists installed models -- it exercises the network path and confirms the Ollama process is running.
+A background goroutine periodically probes each endpoint to verify it is running. The probe tries `GET /v1/models` first (the standard OpenAI-compatible endpoint), falling back to `GET /api/tags` (Ollama's native endpoint). This means health checks work regardless of which backend software the endpoint runs.
 
 An endpoint is marked **unhealthy** when:
 - The health check request fails (connection refused, timeout, DNS error)
-- The health check returns a non-200 status code
+- The health check returns a non-200 status code on both probe paths
 
 An endpoint is marked **healthy** when:
-- The health check returns 200
+- Either probe returns 200
 
 Failing endpoints are rechecked with exponential backoff -- each consecutive failure increases the delay by one interval, up to 10x the base interval. This avoids hammering infrastructure that is down or rate-limiting. The backoff resets when the endpoint recovers.
 
@@ -81,7 +93,7 @@ This means clients see every model available across the fleet, regardless of whi
 
 ## Round-Robin Client
 
-When semantic routing is configured with `provider: ollama` and Ollama is in multi-endpoint mode, the embedding and classifier layers use a **round-robin HTTP client** that distributes their requests across the same endpoint pool.
+When semantic routing is configured with `provider: local` and the local provider is in multi-endpoint mode, the embedding and classifier layers use a **round-robin HTTP client** that distributes their requests across the same endpoint pool.
 
 This client works as a custom `http.RoundTripper` that:
 1. Selects the next healthy endpoint via round-robin
@@ -95,7 +107,7 @@ This means embedding and classifier requests benefit from the same load distribu
 
 ```yaml
 providers:
-  ollama:
+  local:
     endpoints:
       - name: local-3090
         base_url: "http://localhost:11434"
@@ -111,3 +123,25 @@ providers:
 ```
 
 With these weights, out of every 6 requests roughly 1 goes to the 3090, 2 to the 4090, and 3 to the A100. If the cloud machine goes offline, health checks detect the failure and requests are distributed across the two local machines until it recovers.
+
+## Example: Mixed Backends
+
+The endpoints don't all have to run the same software:
+
+```yaml
+providers:
+  local:
+    endpoints:
+      - name: ollama-box
+        base_url: "http://10.0.0.1:11434"
+      - name: vllm-server
+        base_url: "http://10.0.0.2:8000"
+        weight: 2
+      - name: llama-server
+        base_url: "http://10.0.0.3:8080"
+    health_check:
+      interval_seconds: 30
+      timeout_seconds: 5
+```
+
+The gateway sends `POST /v1/chat/completions` to each endpoint regardless of what software is behind the URL. The load balancing and failover layer doesn't care what's behind the URL.

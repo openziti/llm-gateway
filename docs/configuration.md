@@ -49,7 +49,7 @@ zrok:                     # optional: expose the gateway via zrok
 providers:                # backend provider configs
   open_ai: ...
   anthropic: ...
-  ollama: ...
+  local: ...
 
 metrics:                  # optional: OpenTelemetry metrics
   enabled: false
@@ -90,22 +90,24 @@ providers:
 
 If `base_url` is omitted, it defaults to `https://api.anthropic.com`.
 
-### Ollama (Single Endpoint)
+### Local Backend (Single Endpoint)
+
+Configured under the `local` key. Works with Ollama, vLLM, llama-server, SGLang, or any OpenAI-compatible backend.
 
 ```yaml
 providers:
-  ollama:
+  local:
     base_url: "http://localhost:11434"  # optional (default: http://localhost:11434)
-    zrok_share_token: ""                # optional: reach Ollama through a zrok share
+    zrok_share_token: ""                # optional: reach the backend through a zrok share
 ```
 
-### Ollama (Multi-Endpoint)
+### Local Backend (Multi-Endpoint)
 
-When `endpoints` is present, it replaces `base_url` and `zrok_share_token`. See [docs/ollama-multi-endpoint.md](ollama-multi-endpoint.md) for details.
+When `endpoints` is present, it replaces `base_url` and `zrok_share_token`. See [docs/multi-endpoint.md](multi-endpoint.md) for details.
 
 ```yaml
 providers:
-  ollama:
+  local:
     endpoints:
       - name: gpu-box-1
         base_url: "http://10.0.0.1:11434"
@@ -148,7 +150,7 @@ This is useful for debugging semantic routing decisions -- it shows exactly what
 
 1. Load and parse the YAML config file
 2. Apply CLI flag overrides
-3. Initialize providers (OpenAI, Anthropic, Ollama) in order
+3. Initialize providers (OpenAI, Anthropic, local/self-hosted) in order
 4. Create the model-to-provider router
 5. Initialize OpenTelemetry metrics (if enabled)
 6. Initialize the semantic router (if configured)
@@ -169,7 +171,7 @@ providers:
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
 
-  ollama:
+  local:
     endpoints:
       - name: local
         base_url: "http://localhost:11434"
@@ -199,7 +201,7 @@ routing:
 
   semantic:
     enabled: true
-    provider: ollama
+    provider: local
     model: nomic-embed-text
     threshold: 0.75
     ambiguous_threshold: 0.5
