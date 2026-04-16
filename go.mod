@@ -1,12 +1,12 @@
 module github.com/openziti/llm-gateway
 
-go 1.25.3
+go 1.26
 
 require (
 	github.com/michaelquigley/df v0.3.10
 	github.com/michaelquigley/pfxlog v0.6.10
 	github.com/openziti/sdk-golang v1.4.0
-	github.com/openziti/zrok/v2 v2.0.0-rc5
+	github.com/openziti/zrok/v2 v2.0.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/cobra v1.10.2
