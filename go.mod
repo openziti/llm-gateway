@@ -1,12 +1,12 @@
 module github.com/openziti/llm-gateway
 
-go 1.25.3
+go 1.26
 
 require (
 	github.com/michaelquigley/df v0.3.10
 	github.com/michaelquigley/pfxlog v0.6.10
 	github.com/openziti/sdk-golang v1.4.0
-	github.com/openziti/zrok/v2 v2.0.0-rc5
+	github.com/openziti/zrok/v2 v2.0.3
 	github.com/prometheus/client_golang v1.23.2
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/cobra v1.10.2
@@ -84,7 +84,7 @@ require (
 	github.com/prometheus/procfs v0.19.2 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
-	github.com/shoenig/go-m1cpu v0.1.6 // indirect
+	github.com/shoenig/go-m1cpu v0.2.1 // indirect
 	github.com/speps/go-hashids v2.0.0+incompatible // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tklauser/go-sysconf v0.3.15 // indirect
