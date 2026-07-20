@@ -558,7 +558,7 @@ func TestAnthropicStreamToolCalls(t *testing.T) {
 	}, "\n")
 
 	events := make(chan StreamEvent, 10)
-	go a.readSSEStream(io.NopCloser(strings.NewReader(sse)), events, "claude-sonnet-4-6")
+	go a.readSSEStream(io.NopCloser(strings.NewReader(sse)), events, "claude-sonnet-4-6", false)
 
 	var chunks []*StreamChunk
 	var done bool
@@ -626,6 +626,58 @@ func TestAnthropicStreamToolCalls(t *testing.T) {
 	}
 }
 
+// TestAnthropicStreamUsage pins the billing fix: with stream_options.include_usage the
+// stream ends with a usage-bearing chunk built from anthropic's input_tokens
+// (message_start) and output_tokens (message_delta). Without it, no usage chunk is emitted.
+func TestAnthropicStreamUsage(t *testing.T) {
+	a := NewAnthropic("test-key", "")
+	sse := strings.Join([]string{
+		`data: {"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":57}}}`,
+		``,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}`,
+		``,
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":42}}`,
+		``,
+		`data: {"type":"message_stop"}`,
+		``,
+	}, "\n")
+
+	collect := func(includeUsage bool) []*StreamChunk {
+		events := make(chan StreamEvent, 10)
+		go a.readSSEStream(io.NopCloser(strings.NewReader(sse)), events, "claude-sonnet-5", includeUsage)
+		var chunks []*StreamChunk
+		for ev := range events {
+			if ev.Err != nil {
+				t.Fatalf("stream error: %v", ev.Err)
+			}
+			if ev.Chunk != nil {
+				chunks = append(chunks, ev.Chunk)
+			}
+		}
+		return chunks
+	}
+
+	// include_usage=true: the last chunk carries usage with empty choices.
+	withUsage := collect(true)
+	last := withUsage[len(withUsage)-1]
+	if last.Usage == nil {
+		t.Fatal("include_usage=true: final chunk has no usage")
+	}
+	if last.Usage.PromptTokens != 57 || last.Usage.CompletionTokens != 42 || last.Usage.TotalTokens != 99 {
+		t.Fatalf("usage = %+v, want prompt=57 completion=42 total=99", last.Usage)
+	}
+	if len(last.Choices) != 0 {
+		t.Errorf("usage chunk should have empty choices, got %d", len(last.Choices))
+	}
+
+	// include_usage=false: no chunk carries usage.
+	for _, c := range collect(false) {
+		if c.Usage != nil {
+			t.Fatalf("include_usage=false must not emit usage, got %+v", c.Usage)
+		}
+	}
+}
+
 func TestAnthropicStreamErrorEvent(t *testing.T) {
 	a := NewAnthropic("test-key", "")
 
@@ -639,7 +691,7 @@ func TestAnthropicStreamErrorEvent(t *testing.T) {
 	}, "\n")
 
 	events := make(chan StreamEvent, 10)
-	go a.readSSEStream(io.NopCloser(strings.NewReader(sse)), events, "claude-sonnet-4-6")
+	go a.readSSEStream(io.NopCloser(strings.NewReader(sse)), events, "claude-sonnet-4-6", false)
 
 	var streamErr error
 	var done bool
@@ -684,7 +736,7 @@ func TestAnthropicStreamToolCallIndexMapping(t *testing.T) {
 	}, "\n")
 
 	events := make(chan StreamEvent, 10)
-	go a.readSSEStream(io.NopCloser(strings.NewReader(sse)), events, "m")
+	go a.readSSEStream(io.NopCloser(strings.NewReader(sse)), events, "m", false)
 
 	var textContent string
 	var toolIdx *int

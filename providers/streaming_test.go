@@ -42,6 +42,44 @@ func TestParseStreamChunkErrorEnvelope(t *testing.T) {
 	}
 }
 
+// TestOpenAIStreamUsagePassthrough shows the OpenAI provider needs no special handling:
+// OpenAI natively emits the include_usage final chunk (empty choices + usage), and the
+// gateway now preserves it because StreamChunk carries a usage field. This is pass-through,
+// not translation (unlike anthropic, which has no stream_options and is synthesized).
+func TestOpenAIStreamUsagePassthrough(t *testing.T) {
+	o := NewOpenAI("test-key", "")
+
+	sse := strings.Join([]string{
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"hi"}}]}`,
+		``,
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		``,
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`,
+		``,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	events := make(chan StreamEvent, 10)
+	go o.readSSEStream(io.NopCloser(strings.NewReader(sse)), events)
+
+	var last *StreamChunk
+	for ev := range events {
+		if ev.Err != nil {
+			t.Fatalf("stream error: %v", ev.Err)
+		}
+		if ev.Chunk != nil {
+			last = ev.Chunk
+		}
+	}
+	if last == nil || last.Usage == nil {
+		t.Fatal("OpenAI usage chunk was not preserved through the gateway")
+	}
+	if last.Usage.PromptTokens != 10 || last.Usage.CompletionTokens != 5 || last.Usage.TotalTokens != 15 {
+		t.Fatalf("usage = %+v, want prompt=10 completion=5 total=15", last.Usage)
+	}
+}
+
 func TestOpenAIStreamErrorEnvelopeSurfaces(t *testing.T) {
 	o := NewOpenAI("test-key", "")
 

@@ -24,16 +24,16 @@ type Anthropic struct {
 
 // anthropic request/response types
 type anthropicRequest struct {
-	Model       string             `json:"model"`
-	MaxTokens   int                `json:"max_tokens"`
-	System      string             `json:"system,omitempty"`
-	Messages    []anthropicMessage `json:"messages"`
-	Stream      bool               `json:"stream,omitempty"`
-	Temperature *float64           `json:"temperature,omitempty"`
-	TopP        *float64           `json:"top_p,omitempty"`
-	StopSequences []string         `json:"stop_sequences,omitempty"`
-	Tools       []anthropicTool      `json:"tools,omitempty"`
-	ToolChoice  *anthropicToolChoice `json:"tool_choice,omitempty"`
+	Model         string               `json:"model"`
+	MaxTokens     int                  `json:"max_tokens"`
+	System        string               `json:"system,omitempty"`
+	Messages      []anthropicMessage   `json:"messages"`
+	Stream        bool                 `json:"stream,omitempty"`
+	Temperature   *float64             `json:"temperature,omitempty"`
+	TopP          *float64             `json:"top_p,omitempty"`
+	StopSequences []string             `json:"stop_sequences,omitempty"`
+	Tools         []anthropicTool      `json:"tools,omitempty"`
+	ToolChoice    *anthropicToolChoice `json:"tool_choice,omitempty"`
 }
 
 // anthropicTool is a function tool in Anthropic's request format. InputSchema
@@ -61,8 +61,8 @@ type anthropicMessage struct {
 // and response blocks (text or tool_use) read back from Anthropic. Every
 // optional field is omitempty so unused fields don't leak into the wire format.
 type anthropicContentBlock struct {
-	Type   string          `json:"type"`
-	Text   string          `json:"text,omitempty"`
+	Type   string           `json:"type"`
+	Text   string           `json:"text,omitempty"`
 	Source *anthropicSource `json:"source,omitempty"`
 	// tool_use (assistant request blocks, and response blocks)
 	ID    string          `json:"id,omitempty"`
@@ -218,17 +218,23 @@ func (a *Anthropic) ChatCompletionStream(ctx context.Context, req *ChatCompletio
 	}
 
 	events := make(chan StreamEvent, 10)
-	go a.readSSEStream(resp.Body, events, req.Model)
+	includeUsage := req.StreamOptions != nil && req.StreamOptions.IncludeUsage
+	go a.readSSEStream(resp.Body, events, req.Model, includeUsage)
 
 	return events, nil
 }
 
-func (a *Anthropic) readSSEStream(body io.ReadCloser, events chan<- StreamEvent, model string) {
+// readSSEStream translates anthropic's SSE into OpenAI-style chunks. When includeUsage is
+// set (stream_options.include_usage), it emits a final chunk carrying token usage after the
+// last content chunk — anthropic reports input tokens in message_start and output tokens in
+// message_delta, so both are accumulated as the stream runs.
+func (a *Anthropic) readSSEStream(body io.ReadCloser, events chan<- StreamEvent, model string, includeUsage bool) {
 	defer close(events)
 	defer body.Close()
 
 	scanner := bufio.NewScanner(body)
 	var messageID string
+	var promptTokens, completionTokens int
 	created := time.Now().Unix()
 
 	// streaming tool-call state: anthropic interleaves text and tool_use blocks
@@ -271,6 +277,7 @@ func (a *Anthropic) readSSEStream(body io.ReadCloser, events chan<- StreamEvent,
 		case "message_start":
 			if event.Message != nil {
 				messageID = event.Message.ID
+				promptTokens = event.Message.Usage.InputTokens
 			}
 
 		case "content_block_start":
@@ -310,6 +317,10 @@ func (a *Anthropic) readSSEStream(body io.ReadCloser, events chan<- StreamEvent,
 			}
 
 		case "message_delta":
+			// anthropic reports the cumulative output token count on message_delta.
+			if event.Usage != nil {
+				completionTokens = event.Usage.OutputTokens
+			}
 			if event.Delta != nil && event.Delta.StopReason != "" {
 				finishReason := a.translateStopReason(event.Delta.StopReason)
 				chunk := &StreamChunk{
@@ -326,6 +337,23 @@ func (a *Anthropic) readSSEStream(body io.ReadCloser, events chan<- StreamEvent,
 					},
 				}
 				events <- StreamEvent{Chunk: chunk}
+				// OpenAI emits usage in a separate final chunk (empty choices) when the
+				// caller set stream_options.include_usage. Without this, a streamed call
+				// carries no token counts and downstream metering cannot bill it.
+				if includeUsage {
+					events <- StreamEvent{Chunk: &StreamChunk{
+						ID:      messageID,
+						Object:  "chat.completion.chunk",
+						Created: created,
+						Model:   model,
+						Choices: []Choice{},
+						Usage: &Usage{
+							PromptTokens:     promptTokens,
+							CompletionTokens: completionTokens,
+							TotalTokens:      promptTokens + completionTokens,
+						},
+					}}
+				}
 			}
 
 		case "error":
