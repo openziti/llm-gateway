@@ -2,20 +2,27 @@ package providers
 
 // ChatCompletionRequest represents an OpenAI-compatible chat completion request.
 type ChatCompletionRequest struct {
-	Model            string         `json:"model"`
-	Messages         []Message      `json:"messages"`
-	MaxTokens        *int           `json:"max_tokens,omitempty"`
-	Temperature      *float64       `json:"temperature,omitempty"`
-	TopP             *float64       `json:"top_p,omitempty"`
-	N                *int           `json:"n,omitempty"`
-	Stream           bool           `json:"stream,omitempty"`
-	Stop             any            `json:"stop,omitempty"` // string or []string
-	PresencePenalty  *float64       `json:"presence_penalty,omitempty"`
-	FrequencyPenalty *float64       `json:"frequency_penalty,omitempty"`
-	User             string         `json:"user,omitempty"`
-	Tools            []Tool         `json:"tools,omitempty"`
-	ToolChoice       any            `json:"tool_choice,omitempty"` // string or object
+	Model            string          `json:"model"`
+	Messages         []Message       `json:"messages"`
+	MaxTokens        *int            `json:"max_tokens,omitempty"`
+	Temperature      *float64        `json:"temperature,omitempty"`
+	TopP             *float64        `json:"top_p,omitempty"`
+	N                *int            `json:"n,omitempty"`
+	Stream           bool            `json:"stream,omitempty"`
+	Stop             any             `json:"stop,omitempty"` // string or []string
+	PresencePenalty  *float64        `json:"presence_penalty,omitempty"`
+	FrequencyPenalty *float64        `json:"frequency_penalty,omitempty"`
+	User             string          `json:"user,omitempty"`
+	Tools            []Tool          `json:"tools,omitempty"`
+	ToolChoice       any             `json:"tool_choice,omitempty"` // string or object
 	ResponseFormat   *ResponseFormat `json:"response_format,omitempty"`
+	StreamOptions    *StreamOptions  `json:"stream_options,omitempty"`
+}
+
+// StreamOptions carries OpenAI's streaming options. IncludeUsage asks the server to emit
+// a final chunk with token usage (empty choices) after the last content chunk.
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
 }
 
 // Message represents a chat message.
@@ -113,12 +120,15 @@ type Usage struct {
 
 // StreamChunk represents a chunk in a streaming response.
 type StreamChunk struct {
-	ID                string   `json:"id"`
-	Object            string   `json:"object"`
-	Created           int64    `json:"created"`
-	Model             string   `json:"model"`
-	Choices           []Choice `json:"choices"`
-	SystemFingerprint string   `json:"system_fingerprint,omitempty"`
+	ID      string   `json:"id"`
+	Object  string   `json:"object"`
+	Created int64    `json:"created"`
+	Model   string   `json:"model"`
+	Choices []Choice `json:"choices"`
+	// Usage is set only on the final chunk when the caller requested
+	// stream_options.include_usage; nil (omitted) on every content chunk.
+	Usage             *Usage `json:"usage,omitempty"`
+	SystemFingerprint string `json:"system_fingerprint,omitempty"`
 }
 
 // ModelsResponse represents the response from the models endpoint.
