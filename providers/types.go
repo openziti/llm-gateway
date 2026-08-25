@@ -16,6 +16,14 @@ type ChatCompletionRequest struct {
 	Tools            []Tool         `json:"tools,omitempty"`
 	ToolChoice       any            `json:"tool_choice,omitempty"` // string or object
 	ResponseFormat   *ResponseFormat `json:"response_format,omitempty"`
+	StreamOptions    *StreamOptions  `json:"stream_options,omitempty"`
+}
+
+// StreamOptions mirrors OpenAI's stream_options. IncludeUsage requests a
+// terminal usage chunk on an SSE stream; it is only meaningful when Stream is
+// true and is ignored by providers that always stream usage (e.g. Anthropic).
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
 }
 
 // Message represents a chat message.

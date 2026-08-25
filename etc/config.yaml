@@ -59,6 +59,9 @@ providers:
 # metrics configuration
 # metrics:
 #   enabled: true
+#   stream_usage: true   # capture per-key token usage on the streaming path
+#                        # (sets stream_options.include_usage on OpenAI/local
+#                        # upstreams; Anthropic always streams usage). default: false
 
 # semantic routing configuration
 # when enabled, the model field becomes optional in requests.

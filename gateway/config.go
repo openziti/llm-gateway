@@ -81,6 +81,11 @@ type HealthCheckConfig struct {
 
 type MetricsConfig struct {
 	Enabled bool
+	// StreamUsage, when true, captures per-key token usage on the streaming path.
+	// It sets stream_options.include_usage on OpenAI/local upstream requests (a
+	// behavior change some local backends may not honor) and records the usage
+	// Anthropic always streams. Default off for upstream compatibility.
+	StreamUsage bool
 }
 
 type rawConfigDocument struct {

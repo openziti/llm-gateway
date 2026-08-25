@@ -231,6 +231,11 @@ func (a *Anthropic) readSSEStream(body io.ReadCloser, events chan<- StreamEvent,
 	var messageID string
 	created := time.Now().Unix()
 
+	// token usage: input arrives once in message_start; output accumulates in
+	// message_delta as a running total (cumulative, not per-delta), so we keep the
+	// latest value rather than summing. Emitted as a Usage event on message_stop.
+	var promptTokens, outputTokens int
+
 	// streaming tool-call state: anthropic interleaves text and tool_use blocks
 	// in a single content-block index space, but OpenAI tool_call indices count
 	// only tool calls. map anthropic block index -> OpenAI tool_call index so a
@@ -271,6 +276,7 @@ func (a *Anthropic) readSSEStream(body io.ReadCloser, events chan<- StreamEvent,
 		case "message_start":
 			if event.Message != nil {
 				messageID = event.Message.ID
+				promptTokens = event.Message.Usage.InputTokens
 			}
 
 		case "content_block_start":
@@ -310,6 +316,10 @@ func (a *Anthropic) readSSEStream(body io.ReadCloser, events chan<- StreamEvent,
 			}
 
 		case "message_delta":
+			// output_tokens here is a running cumulative total; keep the latest.
+			if event.Usage != nil {
+				outputTokens = event.Usage.OutputTokens
+			}
 			if event.Delta != nil && event.Delta.StopReason != "" {
 				finishReason := a.translateStopReason(event.Delta.StopReason)
 				chunk := &StreamChunk{
@@ -339,6 +349,12 @@ func (a *Anthropic) readSSEStream(body io.ReadCloser, events chan<- StreamEvent,
 			return
 
 		case "message_stop":
+			// emit accumulated usage before Done so the handler records it.
+			events <- StreamEvent{Usage: &Usage{
+				PromptTokens:     promptTokens,
+				CompletionTokens: outputTokens,
+				TotalTokens:      promptTokens + outputTokens,
+			}}
 			events <- StreamEvent{Done: true}
 			return
 		}

@@ -26,13 +26,15 @@ func mustKeyStore(t *testing.T, entries []keys.EntryConfig) *keys.Store {
 // the channel, letting tests exercise terminal and non-terminal stream shapes.
 type stubStreamProvider struct {
 	events []providers.StreamEvent
+	gotReq *providers.ChatCompletionRequest
 }
 
 func (p *stubStreamProvider) ChatCompletion(_ context.Context, _ *providers.ChatCompletionRequest) (*providers.ChatCompletionResponse, error) {
 	return nil, providers.ErrProviderError("not implemented")
 }
 
-func (p *stubStreamProvider) ChatCompletionStream(_ context.Context, _ *providers.ChatCompletionRequest) (<-chan providers.StreamEvent, error) {
+func (p *stubStreamProvider) ChatCompletionStream(_ context.Context, req *providers.ChatCompletionRequest) (<-chan providers.StreamEvent, error) {
+	p.gotReq = req
 	ch := make(chan providers.StreamEvent, len(p.events))
 	for _, ev := range p.events {
 		ch <- ev
@@ -255,7 +257,7 @@ func TestStreamingChannelCloseWithoutTerminalEvent(t *testing.T) {
 	}}
 
 	rr := httptest.NewRecorder()
-	g.handleStreamingCompletion(context.Background(), rr, provider, &providers.ChatCompletionRequest{})
+	g.handleStreamingCompletion(context.Background(), rr, provider, providers.ProviderType(""), "", &providers.ChatCompletionRequest{})
 
 	body := rr.Body.String()
 	if strings.Contains(body, "data: [DONE]") {
@@ -274,7 +276,7 @@ func TestStreamingDoneEmitsDoneSentinel(t *testing.T) {
 	}}
 
 	rr := httptest.NewRecorder()
-	g.handleStreamingCompletion(context.Background(), rr, provider, &providers.ChatCompletionRequest{})
+	g.handleStreamingCompletion(context.Background(), rr, provider, providers.ProviderType(""), "", &providers.ChatCompletionRequest{})
 
 	body := rr.Body.String()
 	if !strings.HasSuffix(body, "data: [DONE]\n\n") {
@@ -283,4 +285,33 @@ func TestStreamingDoneEmitsDoneSentinel(t *testing.T) {
 	if strings.Contains(body, "upstream stream ended unexpectedly") {
 		t.Errorf("completed stream must not carry a truncation error; body:\n%s", body)
 	}
+}
+
+// TestStreamingUsageCaptureToggle verifies the metrics.stream_usage toggle gates
+// whether the gateway requests upstream usage: on -> stream_options.include_usage
+// is set on the request; off -> it stays unset.
+func TestStreamingUsageCaptureToggle(t *testing.T) {
+	events := []providers.StreamEvent{
+		{Chunk: &providers.StreamChunk{ID: "chatcmpl-test", Object: "chat.completion.chunk"}},
+		{Usage: &providers.Usage{PromptTokens: 11, CompletionTokens: 7, TotalTokens: 18}},
+		{Done: true},
+	}
+
+	t.Run("enabled sets include_usage", func(t *testing.T) {
+		g := &Gateway{cfg: &Config{Metrics: &MetricsConfig{Enabled: true, StreamUsage: true}}}
+		provider := &stubStreamProvider{events: events}
+		g.handleStreamingCompletion(context.Background(), httptest.NewRecorder(), provider, providers.ProviderType("openai"), "agent-a", &providers.ChatCompletionRequest{})
+		if provider.gotReq.StreamOptions == nil || !provider.gotReq.StreamOptions.IncludeUsage {
+			t.Errorf("stream_usage on: want stream_options.include_usage=true, got %+v", provider.gotReq.StreamOptions)
+		}
+	})
+
+	t.Run("disabled leaves include_usage unset", func(t *testing.T) {
+		g := &Gateway{cfg: &Config{Metrics: &MetricsConfig{Enabled: true}}}
+		provider := &stubStreamProvider{events: events}
+		g.handleStreamingCompletion(context.Background(), httptest.NewRecorder(), provider, providers.ProviderType("openai"), "agent-a", &providers.ChatCompletionRequest{})
+		if provider.gotReq.StreamOptions != nil {
+			t.Errorf("stream_usage off: want stream_options unset, got %+v", provider.gotReq.StreamOptions)
+		}
+	})
 }

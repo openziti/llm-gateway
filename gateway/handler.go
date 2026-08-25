@@ -170,17 +170,18 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		streaming = "true"
 	}
 
+	keyName := ""
+	if keyEntry != nil {
+		keyName = keyEntry.Name
+	}
+
 	if req.Stream {
-		g.handleStreamingCompletion(ctx, w, provider, &req)
+		g.handleStreamingCompletion(ctx, w, provider, providerType, keyName, &req)
 	} else {
-		g.handleNonStreamingCompletion(ctx, w, provider, providerType, &req)
+		g.handleNonStreamingCompletion(ctx, w, provider, providerType, keyName, &req)
 	}
 
 	if g.meters != nil {
-		keyName := ""
-		if keyEntry != nil {
-			keyName = keyEntry.Name
-		}
 		g.meters.requests.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("provider", string(providerType)),
 			attribute.String("model", req.Model),
@@ -228,7 +229,7 @@ func (g *Gateway) logAndAuthorizeDecision(ctx context.Context, w http.ResponseWr
 	return false
 }
 
-func (g *Gateway) handleNonStreamingCompletion(ctx context.Context, w http.ResponseWriter, provider providers.Provider, providerType providers.ProviderType, req *providers.ChatCompletionRequest) {
+func (g *Gateway) handleNonStreamingCompletion(ctx context.Context, w http.ResponseWriter, provider providers.Provider, providerType providers.ProviderType, keyName string, req *providers.ChatCompletionRequest) {
 	resp, err := provider.ChatCompletion(ctx, req)
 	if err != nil {
 		g.writeProviderError(w, err)
@@ -246,6 +247,7 @@ func (g *Gateway) handleNonStreamingCompletion(ctx context.Context, w http.Respo
 		tokenAttrs := metric.WithAttributes(
 			attribute.String("provider", string(providerType)),
 			attribute.String("model", req.Model),
+			attribute.String("key", keyName),
 		)
 		g.meters.tokensPrompt.Add(ctx, int64(resp.Usage.PromptTokens), tokenAttrs)
 		g.meters.tokensCompletion.Add(ctx, int64(resp.Usage.CompletionTokens), tokenAttrs)
@@ -255,11 +257,20 @@ func (g *Gateway) handleNonStreamingCompletion(ctx context.Context, w http.Respo
 	json.NewEncoder(w).Encode(resp)
 }
 
-func (g *Gateway) handleStreamingCompletion(ctx context.Context, w http.ResponseWriter, provider providers.Provider, req *providers.ChatCompletionRequest) {
+func (g *Gateway) handleStreamingCompletion(ctx context.Context, w http.ResponseWriter, provider providers.Provider, providerType providers.ProviderType, keyName string, req *providers.ChatCompletionRequest) {
 	sse := providers.NewSSEWriter(w)
 	if sse == nil {
 		providers.WriteError(w, providers.NewAPIError("streaming not supported", providers.ErrorTypeServer), http.StatusInternalServerError)
 		return
+	}
+
+	// gate token capture behind the config toggle: request the upstream usage
+	// chunk (OpenAI/local honor stream_options.include_usage; Anthropic always
+	// streams usage) and record only when enabled, so token semantics stay
+	// consistent across providers.
+	captureUsage := g.cfg != nil && g.cfg.Metrics != nil && g.cfg.Metrics.StreamUsage
+	if captureUsage {
+		req.StreamOptions = &providers.StreamOptions{IncludeUsage: true}
 	}
 
 	events, err := provider.ChatCompletionStream(ctx, req)
@@ -270,6 +281,23 @@ func (g *Gateway) handleStreamingCompletion(ctx context.Context, w http.Response
 
 	sse.WriteHeaders()
 
+	var usage *providers.Usage
+	recordUsage := func() {
+		if !captureUsage || usage == nil || g.meters == nil {
+			if captureUsage && usage == nil {
+				dl.Debugf("stream usage capture enabled but no usage reported (provider=%s model=%s)", providerType, req.Model)
+			}
+			return
+		}
+		tokenAttrs := metric.WithAttributes(
+			attribute.String("provider", string(providerType)),
+			attribute.String("model", req.Model),
+			attribute.String("key", keyName),
+		)
+		g.meters.tokensPrompt.Add(ctx, int64(usage.PromptTokens), tokenAttrs)
+		g.meters.tokensCompletion.Add(ctx, int64(usage.CompletionTokens), tokenAttrs)
+	}
+
 	loggedUpstreamModel := false
 	for event := range events {
 		if event.Err != nil {
@@ -278,7 +306,12 @@ func (g *Gateway) handleStreamingCompletion(ctx context.Context, w http.Response
 			return
 		}
 
+		if event.Usage != nil {
+			usage = event.Usage
+		}
+
 		if event.Done {
+			recordUsage()
 			sse.WriteDone()
 			return
 		}

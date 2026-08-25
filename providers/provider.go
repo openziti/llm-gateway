@@ -18,8 +18,11 @@ type Provider interface {
 }
 
 // StreamEvent represents an event in a streaming response.
+// Usage is set on a terminal usage-bearing event (never on a content chunk);
+// the handler captures the last non-nil Usage it sees to record token metrics.
 type StreamEvent struct {
 	Chunk *StreamChunk
+	Usage *Usage
 	Err   error
 	Done  bool
 }
