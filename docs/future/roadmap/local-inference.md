@@ -8,6 +8,8 @@ log:
     note: design session, decisions and reasons — docs/journal/2026-11-24.md
   - stamp: 2026-11-24
     note: hub spec drawn — docs/future/local-inference-hub.md
+  - stamp: 2026-11-24
+    note: harness and control spec drawn — docs/future/local-inference-harness.md
 ---
 
 Use the models on your own hardware from wherever you work. Make the gateway an always-on hub in front of private inference hosts: it knows which engine serves which model, reports its own state, and lets its owner operate the hardware from a laptop — reached over zrok, never as a public model API.

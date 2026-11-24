@@ -38,7 +38,7 @@ providers:
         models: ["qwen3.8-27b"]
 ```
 
-A declaration replaces discovery for that endpoint rather than adding to it, so the answer to "why did this request go there" is always readable from one place. When a declared endpoint's own listing disagrees with its declaration, the hub says so in status and in the log, and keeps to the declaration. **(proposed)**
+A declaration replaces discovery for that endpoint rather than adding to it, so the answer to "why did this request go there" is always readable from one place. When a declared endpoint's own listing disagrees with its declaration, the hub says so in status and in the log, and keeps to the declaration. Merging the two was considered and set aside for that reason.
 
 A declared endpoint's models stay in the catalog while the endpoint is unhealthy. That is what lets the hub say a model is known but unavailable, and it is what the next spec needs in order to know what a stopped engine would serve.
 
@@ -105,11 +105,11 @@ api_keys:
       allowed_models: ["qwen3.8-27b"]
 ```
 
-Root comes only from the gateway's own config, never from a file or HTTP key source, so a remote key source cannot mint an owner. This spec extends the same rule to read-only: source records cannot carry a level at all. That leaves the published key-source contract untouched. The cost is that adding or removing a read-only key means a restart, which also empties the window. **(proposed)**
+Root comes only from the gateway's own config, never from a file or HTTP key source, so a remote key source cannot mint an owner. This spec extends the same rule to read-only: source records cannot carry a level at all. That leaves the published key-source contract untouched. The cost is that adding or removing a read-only key means a restart, which also empties the window.
 
 With authentication disabled the gateway is open, as today, and every caller is treated as read-only. The root views need keys enabled. **(proposed)**
 
-`/metrics` is left as it is: exempt from authentication, and off unless the operator enables it. That leaves a known gap. With the exporter on, anyone who can reach the door can read per-key counters. **(proposed, as an accepted residual)**
+`/metrics` is left as it is: exempt from authentication, and off unless the operator enables it. That leaves a known gap. With the exporter on, anyone who can reach the door can read per-key counters, a guest included. This is an accepted residual; the Deferred section says why it isn't closed here.
 
 ## Scenarios
 
@@ -137,7 +137,7 @@ Each line is a boundary, the call, why, and what would reopen it.
 - **Status wire types and the model behind them.** Separate. The catalog and the status content know nothing of how they are served, and the new surface's wire types are bound with `dd` from the start rather than grown on the `providers` package's `encoding/json` types. **(proposed)**
 - **Errors by tier.** At boot, a malformed declaration, a duplicate endpoint name, or an unknown level fails startup with a directed error. On the request path, a refusal is an OpenAI-shaped 404 or 503 and never ends the process. In the probe loop, failures are logged and the loop continues. A declaration mismatch is a status-visible warning and never a boot failure, since a backend may simply be down at boot.
 - **One door, level on the key.** Fused. The owner is assumed to be the only root user, so a separate control door buys nothing yet. Reopen when root is offered over a public share.
-- **Where elevated levels come from.** Config only. Decided for root; **(proposed)** for read-only. Reopen when keys above consumer need to change without a restart, or need to come from a management plane.
+- **Where elevated levels come from.** Config only, for root and read-only alike. A remote key source must not be able to mint an owner, and keeping levels out of source records leaves the published key-source contract untouched. Reopen when keys above consumer need to change without a restart, or need to come from a management plane.
 
 ## What Changes for Existing Deployments
 
