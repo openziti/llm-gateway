@@ -12,7 +12,7 @@ The reason this exists is specific. Engines in this lab are stopped whenever a u
 
 ## Why a Harness, and Why This Small
 
-The operation being automated is starting and stopping a service. That makes the control dialect systemd, not the API of any inference server, and it means one harness covers vLLM and a custom engine alike. Nothing here needs to know how an engine loads a model. Loading is what starting it does.
+The operation being automated is starting and stopping a service. That makes the control dialect whatever runs the service, which in this lab is systemd, and not the API of any inference server. One harness then covers vLLM and a custom engine alike. Nothing here needs to know how an engine loads a model. Loading is what starting it does.
 
 The alternative was the hub reaching into hosts over SSH and running the same commands. It needs nothing installed on the hosts, and it was set aside for two reasons. It puts a credential with shell reach on the hub. And it leaves host statistics with no natural home.
 
@@ -22,7 +22,7 @@ It also stays out of the inference path. The hub goes on dialing engines directl
 
 ## Engines, Hosts, and Where Each Is Declared
 
-An *engine* is a named thing on a host that serves models while it runs. To the harness it is one or more systemd user units and the GPUs they occupy:
+An *engine* is a named thing on a host that serves models while it runs. To the harness it is the GPUs it occupies and a *runner*: the means by which it is started, stopped, and asked how it is.
 
 ```yaml
 # harness config on box-5090
@@ -30,9 +30,14 @@ listen: "10.0.0.50:8090"
 token: "${HARNESS_TOKEN}"
 engines:
   - name: qwen
-    units: ["qwen-engine.service"]
     gpus: [0]
+    systemd:
+      units: ["qwen-engine.service"]
 ```
+
+Systemd user units are the only runner built here. But the seam is drawn now, because a second is expected: if this work merges, Docker containers and similar will follow. So an engine names its runner in its own block, and another kind can be added beside `systemd` without touching a config that already works.
+
+One rule binds any runner, present or future. It starts and stops something already defined on the host. It never assembles what to run from a request. That is the "names and verbs, never commands" property again, and it is what keeps a container runner from becoming a way to launch arbitrary images.
 
 An engine that omits `gpus` is taken to occupy every GPU on its host, so any claim there stops it. **(proposed)**
 
@@ -56,13 +61,13 @@ providers:
         engine: qwen
 ```
 
-The division is deliberate. The hub's config says what the lab *is*: its endpoints, and which engine is behind each. A harness's config says what may be *done* on its host. Neither repeats the other. **(proposed)**
+The division is deliberate. The hub's config says what the lab *is*: its endpoints, and which engine is behind each. A harness's config says what may be *done* on its host. Neither repeats the other.
 
 An endpoint linked to an engine must declare its `models`. Discovery only works while an engine runs, and the hub has to know what a stopped engine would serve. **(proposed)**
 
 An engine needs no endpoint. Whisper on the 2080ti has no route through the gateway, but declared to its harness it can still be seen, stopped, started, and claimed around.
 
-Systemd stays inside the harness. The hub, the status surface, and every reader speak of engines and their states and never of units.
+The runner stays inside the harness. The hub, the status surface, and every reader speak of engines and their states, and never of units or containers.
 
 The hub dials each harness, the way it dials an endpoint, and a harness can be reached by any transport an endpoint can. The two share a token. On a LAN that token travels over plain HTTP, as inference already does; anything off the LAN belongs on the overlay. **(proposed)**
 
@@ -88,7 +93,7 @@ Joined with what the hub already knows about the endpoint, an engine is in one o
 | draining | still running, and being sent no new requests |
 | stopped | not running, and nothing is wrong |
 | claimed | stopped because a GPU it occupies is claimed |
-| failed | the service manager reports that it failed |
+| failed | its runner reports that it failed |
 
 This is the distinction the hub spec could not make. A stopped engine and a failed one both look merely unhealthy to a probe; the harness knows which it is.
 
@@ -136,7 +141,7 @@ sequenceDiagram
 
 It starts *pending*, with a grace period the harness owns. As soon as the hub learns of a pending claim it stops routing to the engines on that GPU. When they go idle the hub says so, and the harness proceeds early. When the grace ends the harness stops them regardless, and any request still in flight is cut. A claim may also be made with no grace at all.
 
-A claim made at the machine follows the same path. The hub was never asked; it notices the pending claim the next time it reads the harness's state, and cooperates from there. If the hub is down, the grace simply runs out. **(proposed)**
+A claim made at the machine follows the same path. The hub was never asked; it notices the pending claim the next time it reads the harness's state, and cooperates from there. If the hub is down, the grace simply runs out.
 
 Once the engines are stopped the claim is *held*. The harness records which engines it stopped. Engines that were already stopped are not part of the claim.
 
@@ -146,7 +151,7 @@ Release restarts exactly the engines the claim stopped and nothing else. They co
 
 A second claim on a claimed GPU is refused. A claim on a GPU with nothing running is allowed, and simply reserves it.
 
-**Enforcement has edges, and they are chosen.** The harness enforces a claim when it is asked to start something, and when the harness itself starts. The second matters after a reboot, when systemd may bring enabled engines back up on a GPU that is still claimed; the harness stops them. But it does not police the machine in between. If someone starts an engine by hand on a claimed GPU, the harness reports the conflict and leaves it running. A person at the machine outranks the harness. **(proposed)**
+**Enforcement has edges, and they are chosen.** The harness enforces a claim when it is asked to start something, and when the harness itself starts. The second matters after a reboot, when systemd may bring enabled engines back up on a GPU that is still claimed; the harness stops them. But it does not police the machine in between. If someone starts an engine by hand on a claimed GPU, the harness reports the conflict and leaves it running. A person at the machine outranks the harness.
 
 If an engine will not stop, the claim is held anyway and the conflict is reported. The GPU is not actually free, and the status says so.
 
@@ -160,7 +165,7 @@ At the machine, anyone who can run the harness's own command as the engine-ownin
 
 Every control action is logged with who took it and what came of it, and the recent ones are readable by root on the status surface.
 
-Control rides the same door as inference, as decided. The condition recorded for reopening that was root offered over a public share, and control is where it bites. So a gateway with any harness configured refuses to start with a public zrok share enabled. **(proposed)**
+Control rides the same door as inference, as decided. The condition recorded for reopening that was root offered over a public share, and control is where it bites. So a gateway with any harness configured refuses to start with a public zrok share enabled.
 
 ## What the Status Surface Gains
 
@@ -193,13 +198,13 @@ Each line is a boundary, the call, why, and what would reopen it.
 - **Names and verbs, never commands.** Enforced. The harness acts only on engines and GPUs its own config declares, and nothing from a request reaches a shell. This is the property that makes it safe to install. Nothing foreseeable reopens it.
 - **The harness and the inference path.** Separate. The hub dials engines directly; the harness only controls and reports, so its failure cannot take inference down. Reopen if a host must be reached through a single overlay share for both.
 - **Who owns a claim.** The host. The hub requests and reflects, and holds no claim state. Nothing foreseeable reopens it.
-- **Who owns the grace period.** The harness, with the hub cooperating by reporting idleness. One mechanism then serves claims from the hub and claims at the machine. **(proposed)**
-- **Systemd and everything above it.** Separate. Unit names never leave the harness. Reopen when a second way of running engines appears: system units, containers, another service manager.
-- **What the lab is, and what may be done to it.** Separate. Topology is the hub's config; permission is each harness's. **(proposed)**
+- **Who owns the grace period.** The harness, with the hub cooperating by reporting idleness. One mechanism then serves claims from the hub and claims at the machine.
+- **The runner and everything above it.** Separate, and drawn now with one implementation. Systemd user units are the only runner built; containers are expected next if this merges, so the engine declaration names its runner, the engine states are runner-neutral, and unit names never leave the harness. Any runner starts and stops only what the host already defines.
+- **What the lab is, and what may be done to it.** Separate. Topology is the hub's config; permission is each harness's.
 - **Harness wire types and the model behind them.** Separate, and bound with `dd` from the start, as the hub spec decides for its own surface. **(proposed)**
-- **Enforcement of a claim.** At a start request and at harness startup; reported, not enforced, against a person at the machine. **(proposed)**
+- **Enforcement of a claim.** At a start request and at harness startup; reported, not enforced, against a person at the machine.
 - **Errors by tier.** At boot, the hub refuses an endpoint that names an unknown harness or a linked endpoint with no declared models, and a harness refuses a declared unit that does not exist. On the control path, a refused or failed verb is an error to the caller that names the reason, and never ends either process. In the polling loop, an unreachable harness is logged and shown, and the loop continues. On the inference path, a harness failure changes nothing.
-- **One door, and public shares.** Control rides the inference door at root level. A gateway with a harness configured refuses a public share. **(proposed)** Reopen when someone needs both, which is when a separate control door earns its place.
+- **One door, and public shares.** Control rides the inference door at root level. A gateway with a harness configured refuses a public share. Reopen when someone needs both, which is when a separate control door earns its place.
 
 ## Deferred (and Why)
 
@@ -208,7 +213,7 @@ Each line is a boundary, the call, why, and what would reopen it.
 - **Claiming automatically when an application launches.** It needs the harness to know about applications, which it does not.
 - **Refusing a start for lack of memory, and placement by fit.** The harness cannot know what an engine needs until it has run. The owner can see the memory.
 - **Claims that expire or are scheduled.** A forgotten claim is a real hazard. For now its age is shown plainly.
-- **Other ways of running engines.** System units, containers, launchd, Windows services. The lab is systemd user units throughout.
+- **Other runners.** Docker containers and similar are expected if this merges; system units, launchd, and Windows services are further out. The lab is systemd user units throughout, so only that runner is built. One question waits for the container runner: access to the Docker daemon is ordinarily equivalent to root on the host, so the harness's unprivileged footing has to be reconsidered there.
 - **GPU reporting beyond NVIDIA.**
 - **A harness that dials the hub.** It would reach hosts behind NAT without an overlay, at the cost of an inbound door and harness identity on the hub. The hub dials.
 - **Stronger authentication between hub and harness.** A shared token is enough on a LAN that already carries unauthenticated inference.
