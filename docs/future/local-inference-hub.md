@@ -157,9 +157,9 @@ A locally served model wins over a hosted prefix.
 - **Embeddings and transcription routes for clients.** The 2080ti's services are inventory, not part of the example. Internal embedding calls for semantic routing do obey the catalog.
 - **Booting without overlay-dialed backends.** Only an overlay-dialed endpoint can fail the boot, and the lab has none. Building it would also need an amendment to `explicit-config-fails-loud`.
 - **A persistent store for history.** The in-memory window is enough to prove the surface.
-- **Pushed status updates.** Polling serves a command-line reader. The desktop client spec decides whether it needs a stream.
+- **Pushed status updates.** Polling serves a command-line reader, and the [desktop client](local-inference-client.md) polls too.
 - **Authentication on `/metrics`.** The levels are a ladder, and a scraper wants per-key numbers without control, which the ladder doesn't express. Left as the residual named above.
 - **Elevated keys that reload.** Follows from keeping levels out of source records.
 - **Telling an inference client which endpoint served it.** Root reads it from the request feed; a consumer has no need for the lab's host names.
-- **Credentials toward local endpoints.** The local provider sends no `Authorization` header upstream. It matters once a gateway dials another gateway, which is the desktop client's concern.
+- **Credentials toward local endpoints.** The local provider sends no `Authorization` header upstream. It matters once a gateway dials another gateway. The desktop client is not one; it passes the caller's key through.
 - **Opt-in hosted fallback.** Nothing crosses from local to hosted on failure. That is the guarantee, and this spec keeps it.
